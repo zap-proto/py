@@ -1,0 +1,267 @@
+---
+title: Identity
+description: W3C DID (Decentralized Identifier) support for agent authentication.
+---
+
+# Identity
+
+ZAP provides W3C DID (Decentralized Identifier) support for secure agent authentication and identity verification.
+
+## DID Overview
+
+DIDs are globally unique identifiers that enable verifiable, decentralized digital identity. ZAP supports three DID methods:
+
+- **did:lux** - Lux blockchain-anchored DIDs
+- **did:key** - Self-certifying DIDs from cryptographic keys
+- **did:web** - DNS-based DIDs
+
+## DID Class
+
+```python
+from zap import DID, DIDMethod
+```
+
+### Creating DIDs
+
+#### From String
+
+```python
+did = DID.parse("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK")
+print(did.method)  # DIDMethod.KEY
+print(did.id)      # "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+print(str(did))    # Full DID string
+```
+
+#### From Public Key
+
+```python
+from zap import DID
+
+# Create did:key from a public key
+public_key = bytes.fromhex("...")
+did = DID.from_public_key(public_key)
+print(did)  # did:key:z...
+```
+
+#### From Web Domain
+
+```python
+from zap import DID
+
+# Simple domain
+did = DID.from_web("example.com")
+print(did)  # did:web:example.com
+
+# Domain with path
+did = DID.from_web("example.com", "agents/alice")
+print(did)  # did:web:example.com:agents:alice
+```
+
+### DID Methods
+
+```python
+from zap import DIDMethod
+
+# Available methods
+DIDMethod.LUX   # Lux blockchain
+DIDMethod.KEY   # Self-certifying key
+DIDMethod.WEB   # DNS-based
+```
+
+### DID Validation
+
+```python
+did = DID.parse("did:key:z6Mk...")
+
+if did.is_valid():
+    print(f"Valid DID: {did}")
+else:
+    print("Invalid DID")
+```
+
+## DID Documents
+
+DID Documents contain verification methods and service endpoints.
+
+### Generate Document
+
+```python
+from zap.identity import DID, generate_document
+
+did = DID.parse("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK")
+doc = generate_document(did)
+
+print(doc.id)                    # DID string
+print(doc.controller)            # Controller DID
+print(doc.verification_method)   # List of verification methods
+print(doc.authentication)        # Authentication method refs
+print(doc.service)               # Service endpoints
+```
+
+### DIDDocument Structure
+
+```python
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class DIDDocument:
+    context: list[str] = field(default_factory=lambda: [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/suites/ed25519-2020/v1",
+    ])
+    id: str = ""
+    controller: str = ""
+    verification_method: list[VerificationMethod] = field(default_factory=list)
+    authentication: list[str] = field(default_factory=list)
+    assertion_method: list[str] = field(default_factory=list)
+    key_agreement: list[str] = field(default_factory=list)
+    capability_invocation: list[str] = field(default_factory=list)
+    capability_delegation: list[str] = field(default_factory=list)
+    service: list[Service] = field(default_factory=list)
+```
+
+### VerificationMethod
+
+```python
+@dataclass
+class VerificationMethod:
+    id: str                              # e.g., "did:key:z6Mk...#keys-1"
+    type: str                            # e.g., "Multikey"
+    controller: str                      # Controller DID
+    public_key_multibase: str = ""       # Multibase-encoded public key
+    public_key_jwk: dict | None = None   # JWK format (optional)
+    blockchain_account_id: str = ""      # For blockchain-anchored DIDs
+```
+
+### Service
+
+```python
+@dataclass
+class Service:
+    id: str                              # e.g., "did:key:z6Mk...#zap-agent"
+    type: str                            # Service type, e.g., "ZapAgent"
+    service_endpoint: str | list[str]    # Endpoint URL(s)
+```
+
+## Using DIDs with ZAP
+
+### Agent Authentication
+
+```python
+from zap import ZAP, DID
+from zap.crypto import MLDSAKeyPair
+
+# Generate identity
+keypair = MLDSAKeyPair.generate()
+agent_did = DID.from_public_key(keypair.public_key)
+
+app = ZAP("authenticated-agent")
+
+@app.tool(annotations={"did": str(agent_did)})
+def signed_action(data: str) -> dict:
+    """Perform an action with identity"""
+    signature = keypair.sign(data.encode())
+    return {
+        "data": data,
+        "did": str(agent_did),
+        "signature": signature.hex(),
+    }
+```
+
+### Verifying Identity
+
+```python
+from zap import DID, Client
+from zap.crypto import MLDSAKeyPair
+
+async def verify_agent(client: Client, tool_name: str) -> bool:
+    """Verify an agent's identity from tool metadata"""
+    tools = await client.list_tools()
+
+    for tool in tools:
+        if tool.name == tool_name:
+            did_str = tool.annotations.get("did")
+            if did_str:
+                did = DID.parse(did_str)
+                return did.is_valid()
+
+    return False
+```
+
+## Base58 Encoding
+
+ZAP includes Base58 utilities for DID encoding:
+
+```python
+from zap.identity import _base58_encode, _base58_decode
+
+# Encode bytes to Base58
+encoded = _base58_encode(b"\x01\x02\x03")
+
+# Decode Base58 to bytes
+decoded = _base58_decode(encoded)
+```
+
+## Complete Example
+
+```python
+from zap import ZAP, DID, DIDMethod
+from zap.identity import generate_document
+from zap.crypto import MLDSAKeyPair
+
+# Create agent with cryptographic identity
+keypair = MLDSAKeyPair.generate()
+agent_did = DID.from_public_key(keypair.public_key)
+did_document = generate_document(agent_did)
+
+print(f"Agent DID: {agent_did}")
+print(f"DID Method: {agent_did.method.value}")
+
+app = ZAP("did-agent")
+
+@app.resource("did://document")
+def get_did_document() -> dict:
+    """Return agent's DID Document"""
+    return {
+        "@context": did_document.context,
+        "id": did_document.id,
+        "controller": did_document.controller,
+        "verificationMethod": [
+            {
+                "id": vm.id,
+                "type": vm.type,
+                "controller": vm.controller,
+                "publicKeyMultibase": vm.public_key_multibase,
+            }
+            for vm in did_document.verification_method
+        ],
+        "service": [
+            {
+                "id": s.id,
+                "type": s.type,
+                "serviceEndpoint": s.service_endpoint,
+            }
+            for s in did_document.service
+        ],
+    }
+
+@app.tool
+def sign_message(message: str) -> dict:
+    """Sign a message with agent identity"""
+    signature = keypair.sign(message.encode())
+    return {
+        "message": message,
+        "signer": str(agent_did),
+        "signature": signature.hex(),
+    }
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Next Steps
+
+- [Crypto](/docs/crypto) - Post-quantum cryptography
+- [Consensus](/docs/consensus) - Agent consensus with identity
+- [Examples](/docs/examples/decorator-patterns) - More usage patterns

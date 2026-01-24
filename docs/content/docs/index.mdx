@@ -1,0 +1,50 @@
+---
+title: Overview
+description: High-performance ZAP RPC for Python AI agents with FastMCP-style decorators and post-quantum security.
+---
+
+# ZAP Python
+
+ZAP (Zero-Copy App Proto) is a high-performance RPC framework for building AI agent communication systems in Python.
+
+## Key Features
+
+- **FastMCP-Style API**: Decorator-based registration for tools, resources, and prompts
+- **Zero-Copy Performance**: Built on ZAP for minimal serialization overhead
+- **Async-First**: Full async/await support throughout the API
+- **Post-Quantum Security**: ML-KEM-768 and ML-DSA-65 cryptography
+- **W3C DID Support**: Decentralized identity for agent authentication
+- **Agent Consensus**: Voting-based response aggregation for multi-agent systems
+
+## Quick Example
+
+```python
+from zap import ZAP
+
+app = ZAP("my-agent")
+
+@app.tool
+def search(query: str) -> list[str]:
+    """Search for content"""
+    return [f"Found: {query}"]
+
+@app.resource("file://{path}")
+def read_file(path: str) -> str:
+    """Read a file from disk"""
+    return open(path).read()
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Why ZAP?
+
+Traditional RPC frameworks serialize data multiple times during transmission. ZAP uses ZAP's zero-copy deserialization to eliminate this overhead, making it ideal for high-throughput AI agent communication.
+
+Combined with post-quantum cryptography and W3C DID support, ZAP provides a secure foundation for building distributed AI systems.
+
+## Next Steps
+
+- [Installation](/docs/installation) - Install ZAP with pip or uv
+- [Quick Start](/docs/quickstart) - Build your first ZAP server
+- [Server API](/docs/server-api) - Complete ZAP class reference

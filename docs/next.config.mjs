@@ -1,14 +1,15 @@
-const isProd = process.env.NODE_ENV === 'production'
+import { createMDX } from 'fumadocs-mdx/next';
+
+const withMDX = createMDX();
 
 /** @type {import('next').NextConfig} */
-const nextConfig = {
+const config = {
+  basePath: '/zap-py',
   output: 'export',
-  basePath: isProd ? '/zap-py' : '',
-  assetPrefix: isProd ? '/zap-py/' : '',
+  reactStrictMode: true,
   images: {
     unoptimized: true,
   },
-  trailingSlash: true,
-}
+};
 
-export default nextConfig
+export default withMDX(config);

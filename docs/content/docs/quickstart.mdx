@@ -1,0 +1,164 @@
+---
+title: Quick Start
+description: Build your first ZAP server with FastMCP-style decorators.
+---
+
+# Quick Start
+
+This guide walks through creating a ZAP server with tools, resources, and prompts using the FastMCP-style decorator API.
+
+## Basic Server
+
+Create a new file `server.py`:
+
+```python
+from zap import ZAP
+
+# Create a ZAP application
+app = ZAP("my-agent", version="1.0.0")
+
+# Register a tool using the decorator
+@app.tool
+def add(a: int, b: int) -> int:
+    """Add two numbers together"""
+    return a + b
+
+@app.tool
+def search(query: str, limit: int = 10) -> list[str]:
+    """Search for content matching the query"""
+    # Your search implementation here
+    return [f"Result {i}: {query}" for i in range(limit)]
+
+if __name__ == "__main__":
+    app.run(port=9999)
+```
+
+Run the server:
+
+```bash
+python server.py
+```
+
+## Adding Resources
+
+Resources expose data that can be read by clients:
+
+```python
+from zap import ZAP
+
+app = ZAP("file-server")
+
+@app.resource("file://{path}")
+def read_file(path: str) -> str:
+    """Read a file from the filesystem"""
+    with open(path) as f:
+        return f.read()
+
+@app.resource("config://{key}", mime_type="application/json")
+def get_config(key: str) -> dict:
+    """Get configuration value"""
+    config = {
+        "database_url": "postgresql://localhost/db",
+        "cache_ttl": 3600,
+    }
+    return {"key": key, "value": config.get(key)}
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Adding Prompts
+
+Prompts generate structured messages for AI interactions:
+
+```python
+from zap import ZAP, PromptMessage
+
+app = ZAP("prompt-server")
+
+@app.prompt
+def greeting(name: str) -> list[PromptMessage]:
+    """Generate a personalized greeting"""
+    return [
+        PromptMessage(role="system", content="You are a helpful assistant."),
+        PromptMessage(role="assistant", content=f"Hello, {name}! How can I help you today?"),
+    ]
+
+@app.prompt
+def code_review(language: str, code: str) -> list[PromptMessage]:
+    """Generate a code review prompt"""
+    return [
+        PromptMessage(
+            role="system",
+            content=f"You are an expert {language} code reviewer."
+        ),
+        PromptMessage(
+            role="user",
+            content=f"Please review this code:\n\n```{language}\n{code}\n```"
+        ),
+    ]
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Async Handlers
+
+All handlers support async/await:
+
+```python
+import asyncio
+from zap import ZAP
+
+app = ZAP("async-server")
+
+@app.tool
+async def fetch_data(url: str) -> dict:
+    """Fetch data from a URL asynchronously"""
+    import httpx
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return response.json()
+
+@app.resource("stream://{channel}")
+async def stream_messages(channel: str) -> str:
+    """Stream messages from a channel"""
+    await asyncio.sleep(0.1)  # Simulate async work
+    return f"Latest message from {channel}"
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Connecting with a Client
+
+Use the `Client` class to connect to a ZAP server:
+
+```python
+import asyncio
+from zap import Client
+
+async def main():
+    async with Client("localhost:9999") as client:
+        # List available tools
+        tools = await client.list_tools()
+        print(f"Available tools: {[t.name for t in tools]}")
+
+        # Call a tool
+        result = await client.call_tool("add", {"a": 5, "b": 3})
+        print(f"5 + 3 = {result.content.decode()}")
+
+        # Read a resource
+        content = await client.read_resource("file://README.md")
+        print(f"File content: {content.text}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Next Steps
+
+- [Server API](/docs/server-api) - Complete ZAP class reference
+- [Client API](/docs/client-api) - Client class reference
+- [Types](/docs/types) - Type definitions
+- [Examples](/docs/examples/decorator-patterns) - More examples

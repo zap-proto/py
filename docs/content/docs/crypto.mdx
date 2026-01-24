@@ -1,0 +1,365 @@
+---
+title: Cryptography
+description: Post-quantum cryptography with ML-KEM-768 and ML-DSA-65 for secure agent communication.
+---
+
+# Cryptography
+
+ZAP implements NIST FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) post-quantum cryptography standards for secure agent communication.
+
+## Overview
+
+Post-quantum cryptography protects against attacks from both classical and quantum computers. ZAP provides:
+
+- **ML-KEM-768** - Key encapsulation for secure key exchange
+- **ML-DSA-65** - Digital signatures for authentication
+- **X25519** - Classical elliptic curve Diffie-Hellman
+- **Hybrid Key Exchange** - Combined classical + post-quantum security
+
+## ML-KEM-768 (Key Encapsulation)
+
+ML-KEM (Module-Lattice-based Key Encapsulation Mechanism) provides post-quantum secure key exchange.
+
+### Generate Key Pair
+
+```python
+from zap import MLKEMKeyPair
+
+# Generate a new ML-KEM-768 key pair
+keypair = MLKEMKeyPair.generate()
+
+print(f"Public key: {len(keypair.public_key)} bytes")   # 1184 bytes
+print(f"Private key: {len(keypair.private_key)} bytes") # 2400 bytes
+```
+
+### Key Encapsulation
+
+```python
+# Sender: encapsulate a shared secret
+ciphertext, shared_secret = keypair.encapsulate()
+
+print(f"Ciphertext: {len(ciphertext)} bytes")       # 1088 bytes
+print(f"Shared secret: {len(shared_secret)} bytes") # 32 bytes
+```
+
+### Key Decapsulation
+
+```python
+# Receiver: decapsulate to get the same shared secret
+decapsulated_secret = keypair.decapsulate(ciphertext)
+
+# Both parties now have the same shared secret
+assert shared_secret == decapsulated_secret
+```
+
+### MLKEMKeyPair Structure
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class MLKEMKeyPair:
+    public_key: bytes   # 1184 bytes
+    private_key: bytes  # 2400 bytes
+
+    @classmethod
+    def generate(cls) -> MLKEMKeyPair: ...
+
+    def encapsulate(self) -> tuple[bytes, bytes]: ...
+    def decapsulate(self, ciphertext: bytes) -> bytes: ...
+```
+
+## ML-DSA-65 (Digital Signatures)
+
+ML-DSA (Module-Lattice-based Digital Signature Algorithm) provides post-quantum secure signatures.
+
+### Generate Key Pair
+
+```python
+from zap import MLDSAKeyPair
+
+# Generate a new ML-DSA-65 key pair
+keypair = MLDSAKeyPair.generate()
+
+print(f"Public key: {len(keypair.public_key)} bytes")   # 1952 bytes
+print(f"Private key: {len(keypair.private_key)} bytes") # 4032 bytes
+```
+
+### Sign Message
+
+```python
+message = b"Hello, quantum-safe world!"
+signature = keypair.sign(message)
+
+print(f"Signature: {len(signature)} bytes")  # 3293 bytes
+```
+
+### Verify Signature
+
+```python
+is_valid = keypair.verify(message, signature)
+
+if is_valid:
+    print("Signature verified!")
+else:
+    print("Signature invalid!")
+```
+
+### MLDSAKeyPair Structure
+
+```python
+@dataclass
+class MLDSAKeyPair:
+    public_key: bytes   # 1952 bytes
+    private_key: bytes  # 4032 bytes
+
+    @classmethod
+    def generate(cls) -> MLDSAKeyPair: ...
+
+    def sign(self, message: bytes) -> bytes: ...
+    def verify(self, message: bytes, signature: bytes) -> bool: ...
+```
+
+## X25519 (Classical ECDH)
+
+X25519 provides classical elliptic curve Diffie-Hellman key exchange.
+
+### Generate Key Pair
+
+```python
+from zap import X25519KeyPair
+
+keypair = X25519KeyPair.generate()
+
+print(f"Public key: {len(keypair.public_key)} bytes")   # 32 bytes
+print(f"Private key: {len(keypair.private_key)} bytes") # 32 bytes
+```
+
+### Key Exchange
+
+```python
+# Alice generates her keypair
+alice = X25519KeyPair.generate()
+
+# Bob generates his keypair
+bob = X25519KeyPair.generate()
+
+# Both perform key exchange
+alice_secret = alice.exchange(bob.public_key)
+bob_secret = bob.exchange(alice.public_key)
+
+# Both have the same shared secret
+assert alice_secret == bob_secret
+print(f"Shared secret: {len(alice_secret)} bytes")  # 32 bytes
+```
+
+### X25519KeyPair Structure
+
+```python
+@dataclass
+class X25519KeyPair:
+    public_key: bytes   # 32 bytes
+    private_key: bytes  # 32 bytes
+
+    @classmethod
+    def generate(cls) -> X25519KeyPair: ...
+
+    def exchange(self, peer_public_key: bytes) -> bytes: ...
+```
+
+## Hybrid Key Exchange
+
+Combines X25519 and ML-KEM for defense in depth against both classical and quantum attacks.
+
+### Generate Hybrid Keys
+
+```python
+from zap import HybridKeyExchange
+
+hybrid = HybridKeyExchange.generate()
+
+print(f"X25519 public: {len(hybrid.x25519.public_key)} bytes")
+print(f"ML-KEM public: {len(hybrid.mlkem.public_key)} bytes")
+```
+
+### Hybrid Key Exchange Protocol
+
+```python
+# === Client (Initiator) ===
+client = HybridKeyExchange.generate()
+
+# Step 1: Client initiates
+x25519_pub, mlkem_pub, client_nonce = client.initiate()
+
+# Send (x25519_pub, mlkem_pub, client_nonce) to server...
+
+# === Server (Responder) ===
+server = HybridKeyExchange.generate()
+
+# Step 2: Server responds
+server_x25519_pub, mlkem_ciphertext, server_nonce, server_secret = server.respond(
+    peer_x25519_public=x25519_pub,
+    peer_mlkem_public=mlkem_pub,
+    peer_nonce=client_nonce,
+)
+
+# Send (server_x25519_pub, mlkem_ciphertext, server_nonce) to client...
+
+# === Client (Finalize) ===
+
+# Step 3: Client finalizes
+client_secret = client.finalize(
+    peer_x25519_public=server_x25519_pub,
+    mlkem_ciphertext=mlkem_ciphertext,
+    peer_nonce=server_nonce,
+    client_nonce=client_nonce,
+)
+
+# Both parties now have the same shared secret
+assert client_secret == server_secret
+print(f"Hybrid shared secret: {len(client_secret)} bytes")  # 32 bytes
+```
+
+### HybridKeyExchange Structure
+
+```python
+@dataclass
+class HybridKeyExchange:
+    x25519: X25519KeyPair
+    mlkem: MLKEMKeyPair
+
+    @classmethod
+    def generate(cls) -> HybridKeyExchange: ...
+
+    def initiate(self) -> tuple[bytes, bytes, bytes]: ...
+    def respond(
+        self,
+        peer_x25519_public: bytes,
+        peer_mlkem_public: bytes,
+        peer_nonce: bytes,
+    ) -> tuple[bytes, bytes, bytes, bytes]: ...
+    def finalize(
+        self,
+        peer_x25519_public: bytes,
+        mlkem_ciphertext: bytes,
+        peer_nonce: bytes,
+        client_nonce: bytes,
+    ) -> bytes: ...
+```
+
+## Complete Example: Secure Agent Communication
+
+```python
+from zap import ZAP, DID, MLDSAKeyPair, MLKEMKeyPair, HybridKeyExchange
+
+# Generate identity and keys
+signing_key = MLDSAKeyPair.generate()
+agent_did = DID.from_public_key(signing_key.public_key)
+hybrid = HybridKeyExchange.generate()
+
+app = ZAP("secure-agent")
+
+@app.resource("keys://signing/public")
+def get_signing_public_key() -> str:
+    """Get agent's signing public key"""
+    return signing_key.public_key.hex()
+
+@app.resource("keys://exchange/public")
+def get_exchange_public_keys() -> dict:
+    """Get agent's key exchange public keys"""
+    return {
+        "x25519": hybrid.x25519.public_key.hex(),
+        "mlkem": hybrid.mlkem.public_key.hex(),
+    }
+
+@app.tool
+def sign_data(data: str) -> dict:
+    """Sign data with ML-DSA-65"""
+    data_bytes = data.encode()
+    signature = signing_key.sign(data_bytes)
+    return {
+        "data": data,
+        "signature": signature.hex(),
+        "signer": str(agent_did),
+        "algorithm": "ML-DSA-65",
+    }
+
+@app.tool
+def verify_signature(data: str, signature_hex: str, public_key_hex: str) -> dict:
+    """Verify a ML-DSA-65 signature"""
+    data_bytes = data.encode()
+    signature = bytes.fromhex(signature_hex)
+    public_key = bytes.fromhex(public_key_hex)
+
+    # Create verifier with public key only
+    verifier = MLDSAKeyPair(public_key=public_key, private_key=b"")
+    is_valid = verifier.verify(data_bytes, signature)
+
+    return {
+        "data": data,
+        "valid": is_valid,
+    }
+
+@app.tool
+def initiate_key_exchange() -> dict:
+    """Initiate hybrid key exchange"""
+    x25519_pub, mlkem_pub, nonce = hybrid.initiate()
+    return {
+        "x25519_public": x25519_pub.hex(),
+        "mlkem_public": mlkem_pub.hex(),
+        "nonce": nonce.hex(),
+    }
+
+@app.tool
+def respond_key_exchange(
+    peer_x25519_public: str,
+    peer_mlkem_public: str,
+    peer_nonce: str,
+) -> dict:
+    """Respond to hybrid key exchange"""
+    x25519_pub, ciphertext, server_nonce, _ = hybrid.respond(
+        peer_x25519_public=bytes.fromhex(peer_x25519_public),
+        peer_mlkem_public=bytes.fromhex(peer_mlkem_public),
+        peer_nonce=bytes.fromhex(peer_nonce),
+    )
+    return {
+        "x25519_public": x25519_pub.hex(),
+        "mlkem_ciphertext": ciphertext.hex(),
+        "nonce": server_nonce.hex(),
+    }
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Security Considerations
+
+### Key Sizes
+
+| Algorithm | Public Key | Private Key | Signature/Ciphertext |
+|-----------|------------|-------------|---------------------|
+| ML-KEM-768 | 1,184 bytes | 2,400 bytes | 1,088 bytes |
+| ML-DSA-65 | 1,952 bytes | 4,032 bytes | 3,293 bytes |
+| X25519 | 32 bytes | 32 bytes | N/A |
+
+### Security Levels
+
+| Algorithm | Classical Security | Quantum Security |
+|-----------|-------------------|-----------------|
+| ML-KEM-768 | 192-bit | 128-bit |
+| ML-DSA-65 | 192-bit | 128-bit |
+| X25519 | 128-bit | None |
+| Hybrid | 192-bit | 128-bit |
+
+### Best Practices
+
+1. **Use Hybrid Mode** - Combine classical and post-quantum for defense in depth
+2. **Protect Private Keys** - Never expose private keys in logs or responses
+3. **Rotate Keys** - Implement key rotation for long-lived agents
+4. **Verify Before Trust** - Always verify signatures before trusting data
+
+## Next Steps
+
+- [Identity](/docs/identity) - DID integration with cryptography
+- [Consensus](/docs/consensus) - Signed consensus responses
+- [Examples](/docs/examples/async-examples) - Secure communication patterns

@@ -1,0 +1,434 @@
+---
+title: Decorator Patterns
+description: FastMCP-style decorator patterns for tools, resources, and prompts.
+---
+
+# Decorator Patterns
+
+This guide covers common patterns for using ZAP's FastMCP-style decorators.
+
+## Basic Tool Patterns
+
+### Simple Tool
+
+```python
+from zap import ZAP
+
+app = ZAP("tools-demo")
+
+@app.tool
+def greet(name: str) -> str:
+    """Greet someone by name"""
+    return f"Hello, {name}!"
+```
+
+### Tool with Optional Parameters
+
+```python
+@app.tool
+def search(query: str, limit: int = 10, offset: int = 0) -> list[str]:
+    """Search with pagination"""
+    results = do_search(query)
+    return results[offset:offset + limit]
+```
+
+### Tool with Type Hints
+
+```python
+from typing import TypedDict
+
+class SearchResult(TypedDict):
+    title: str
+    url: str
+    score: float
+
+@app.tool
+def search_typed(query: str) -> list[SearchResult]:
+    """Search returning typed results"""
+    return [
+        {"title": "Result 1", "url": "https://...", "score": 0.95},
+        {"title": "Result 2", "url": "https://...", "score": 0.87},
+    ]
+```
+
+### Tool with Pydantic Models
+
+```python
+from pydantic import BaseModel, Field
+
+class QueryParams(BaseModel):
+    query: str = Field(..., description="Search query")
+    filters: list[str] = Field(default_factory=list)
+    max_results: int = Field(default=10, ge=1, le=100)
+
+@app.tool
+def advanced_search(params: QueryParams) -> list[dict]:
+    """Advanced search with structured parameters"""
+    return [{"query": params.query, "filters": params.filters}]
+```
+
+### Tool with Custom Name and Description
+
+```python
+@app.tool(
+    name="calculate_expression",
+    description="Safely evaluate a mathematical expression"
+)
+def calc(expr: str) -> float:
+    """Original docstring is overridden"""
+    import ast
+    return eval(compile(ast.parse(expr, mode='eval'), '<string>', 'eval'))
+```
+
+### Tool with Annotations
+
+```python
+@app.tool(
+    annotations={
+        "category": "math",
+        "version": "1.0",
+        "deprecated": "false",
+    }
+)
+def add(a: int, b: int) -> int:
+    """Add two numbers"""
+    return a + b
+```
+
+## Resource Patterns
+
+### Simple File Resource
+
+```python
+@app.resource("file://{path}")
+def read_file(path: str) -> str:
+    """Read file contents"""
+    with open(path) as f:
+        return f.read()
+```
+
+### Resource with Multiple Path Segments
+
+```python
+@app.resource("db://{database}/{table}/{id}")
+def get_record(database: str, table: str, id: str) -> dict:
+    """Fetch a database record"""
+    return {"database": database, "table": table, "id": id, "data": "..."}
+```
+
+### Binary Resource
+
+```python
+@app.resource("image://{path}", mime_type="image/png")
+def get_image(path: str) -> bytes:
+    """Get image binary data"""
+    with open(path, "rb") as f:
+        return f.read()
+```
+
+### JSON Resource
+
+```python
+import json
+
+@app.resource("config://{key}", mime_type="application/json")
+def get_config(key: str) -> dict:
+    """Get configuration as JSON"""
+    configs = {
+        "database": {"host": "localhost", "port": 5432},
+        "cache": {"ttl": 3600, "max_size": 1000},
+    }
+    return configs.get(key, {})
+```
+
+### Static Resource (No Parameters)
+
+```python
+import datetime
+
+@app.resource("time://now", mime_type="text/plain")
+def current_time() -> str:
+    """Get current timestamp"""
+    return datetime.datetime.now().isoformat()
+```
+
+### Resource with Custom Metadata
+
+```python
+@app.resource(
+    "api://{endpoint}",
+    name="external_api",
+    description="Fetch data from external API",
+    mime_type="application/json",
+    annotations={"rate_limit": "100/min"}
+)
+def fetch_api(endpoint: str) -> dict:
+    """Fetch from API"""
+    return {"endpoint": endpoint, "data": "..."}
+```
+
+## Prompt Patterns
+
+### Simple Prompt
+
+```python
+from zap import PromptMessage
+
+@app.prompt
+def greeting(name: str) -> list[PromptMessage]:
+    """Generate a greeting"""
+    return [
+        PromptMessage(role="assistant", content=f"Hello, {name}!")
+    ]
+```
+
+### Multi-Message Prompt
+
+```python
+@app.prompt
+def code_review(language: str, code: str) -> list[PromptMessage]:
+    """Generate code review prompt"""
+    return [
+        PromptMessage(
+            role="system",
+            content=f"You are an expert {language} code reviewer. "
+                    "Focus on best practices, potential bugs, and performance."
+        ),
+        PromptMessage(
+            role="user",
+            content=f"Please review this {language} code:\n\n```{language}\n{code}\n```"
+        ),
+    ]
+```
+
+### Prompt with Optional Parameters
+
+```python
+@app.prompt
+def assistant(
+    task: str,
+    context: str = "",
+    tone: str = "professional"
+) -> list[PromptMessage]:
+    """Generate assistant prompt with customization"""
+    system_content = f"You are a {tone} AI assistant."
+    if context:
+        system_content += f" Context: {context}"
+
+    return [
+        PromptMessage(role="system", content=system_content),
+        PromptMessage(role="user", content=task),
+    ]
+```
+
+### Prompt with Custom Name
+
+```python
+@app.prompt(name="sql_helper", description="Generate SQL query assistance prompt")
+def sql(query_description: str, dialect: str = "postgresql") -> list[PromptMessage]:
+    """SQL helper prompt"""
+    return [
+        PromptMessage(
+            role="system",
+            content=f"You are a SQL expert specializing in {dialect}."
+        ),
+        PromptMessage(
+            role="user",
+            content=f"Write a {dialect} query to: {query_description}"
+        ),
+    ]
+```
+
+## Async Patterns
+
+### Async Tool
+
+```python
+import asyncio
+import httpx
+
+@app.tool
+async def fetch_url(url: str) -> str:
+    """Fetch URL content asynchronously"""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return response.text
+```
+
+### Async Resource
+
+```python
+@app.resource("stream://{channel}")
+async def stream_messages(channel: str) -> str:
+    """Get latest message from channel"""
+    await asyncio.sleep(0.1)  # Simulate async I/O
+    return f"Latest from {channel}: ..."
+```
+
+### Async Prompt
+
+```python
+@app.prompt
+async def dynamic_context(context_id: str) -> list[PromptMessage]:
+    """Generate prompt with async context loading"""
+    context = await load_context_from_db(context_id)
+    return [
+        PromptMessage(role="system", content=context),
+        PromptMessage(role="user", content="Continue the conversation."),
+    ]
+
+async def load_context_from_db(context_id: str) -> str:
+    await asyncio.sleep(0.01)
+    return f"Context for {context_id}"
+```
+
+### Parallel Async Tool Calls
+
+```python
+@app.tool
+async def parallel_fetch(urls: list[str]) -> list[dict]:
+    """Fetch multiple URLs in parallel"""
+    async with httpx.AsyncClient() as client:
+        tasks = [client.get(url) for url in urls]
+        responses = await asyncio.gather(*tasks)
+        return [
+            {"url": url, "status": r.status_code, "length": len(r.text)}
+            for url, r in zip(urls, responses)
+        ]
+```
+
+## Error Handling Patterns
+
+### Tool with Validation
+
+```python
+@app.tool
+def divide(a: float, b: float) -> float:
+    """Divide a by b"""
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+```
+
+### Tool with Try-Except
+
+```python
+@app.tool
+def safe_parse_json(text: str) -> dict | str:
+    """Parse JSON safely"""
+    try:
+        import json
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        return f"Invalid JSON: {e}"
+```
+
+### Resource with Fallback
+
+```python
+@app.resource("config://{key}")
+def get_config_safe(key: str) -> str:
+    """Get config with fallback"""
+    import os
+    value = os.getenv(key)
+    if value is None:
+        return f"<not set: {key}>"
+    return value
+```
+
+## Composition Patterns
+
+### Tool Using Other Tools
+
+```python
+@app.tool
+def process_file(path: str) -> dict:
+    """Process a file using multiple operations"""
+    content = read_file(path)  # Use another registered tool
+    word_count = len(content.split())
+    return {"path": path, "words": word_count}
+```
+
+### Chained Operations
+
+```python
+@app.tool
+async def pipeline(input_data: str) -> dict:
+    """Run data through a processing pipeline"""
+    step1 = await validate(input_data)
+    step2 = await transform(step1)
+    step3 = await enrich(step2)
+    return {"input": input_data, "output": step3}
+```
+
+## Complete Example Server
+
+```python
+from zap import ZAP, PromptMessage
+import asyncio
+
+app = ZAP("patterns-demo", version="1.0.0")
+
+# === Tools ===
+
+@app.tool
+def calculate(expression: str) -> float:
+    """Evaluate mathematical expression"""
+    import ast
+    return eval(compile(ast.parse(expression, mode='eval'), '<string>', 'eval'))
+
+@app.tool(annotations={"category": "text"})
+def word_count(text: str) -> dict:
+    """Count words in text"""
+    words = text.split()
+    return {"total": len(words), "unique": len(set(words))}
+
+@app.tool
+async def fetch_json(url: str) -> dict:
+    """Fetch JSON from URL"""
+    import httpx
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url)
+        return r.json()
+
+# === Resources ===
+
+@app.resource("env://{var}")
+def get_env(var: str) -> str:
+    """Get environment variable"""
+    import os
+    return os.getenv(var, "")
+
+@app.resource("time://now", mime_type="text/plain")
+def now() -> str:
+    """Current timestamp"""
+    from datetime import datetime
+    return datetime.now().isoformat()
+
+# === Prompts ===
+
+@app.prompt
+def assistant(context: str = "") -> list[PromptMessage]:
+    """Initialize assistant"""
+    msgs = [PromptMessage(role="system", content="You are a helpful assistant.")]
+    if context:
+        msgs.append(PromptMessage(role="system", content=f"Context: {context}"))
+    return msgs
+
+@app.prompt
+def code_helper(language: str, task: str) -> list[PromptMessage]:
+    """Code assistance prompt"""
+    return [
+        PromptMessage(role="system", content=f"You are an expert {language} programmer."),
+        PromptMessage(role="user", content=task),
+    ]
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Next Steps
+
+- [Async Examples](/docs/examples/async-examples) - Deep dive into async patterns
+- [Server API](/docs/server-api) - Complete API reference
+- [Client API](/docs/client-api) - Connecting to servers

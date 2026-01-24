@@ -1,0 +1,311 @@
+---
+title: Client API
+description: Complete reference for the ZAP Client class and async methods.
+---
+
+# Client API
+
+The `Client` class provides an async interface for connecting to ZAP servers.
+
+## Client Class
+
+```python
+from zap import Client
+
+client = Client("localhost:9999", transport="tcp")
+```
+
+### Constructor Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `address` | `str` | required | Server address (`host:port`) |
+| `transport` | `str` | `"tcp"` | Transport type: `tcp`, `unix`, `websocket` |
+
+## Connection Management
+
+### Context Manager (Recommended)
+
+```python
+import asyncio
+from zap import Client
+
+async def main():
+    async with Client("localhost:9999") as client:
+        tools = await client.list_tools()
+        print(f"Connected! Found {len(tools)} tools")
+
+asyncio.run(main())
+```
+
+### Manual Connection
+
+```python
+from zap import Client
+
+async def main():
+    client = Client("localhost:9999")
+
+    try:
+        # Connect and get server info
+        server_info = await client.connect(
+            name="my-client",
+            version="1.0.0"
+        )
+        print(f"Connected to: {server_info.name} v{server_info.version}")
+
+        # Use the client...
+        tools = await client.list_tools()
+
+    finally:
+        await client.close()
+```
+
+### Connect Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | `"zap-client"` | Client name for identification |
+| `version` | `str` | `"0.1.0"` | Client version string |
+
+**Returns:** `ServerInfo` with name, version, and capabilities
+
+## Tool Operations
+
+### List Tools
+
+```python
+tools = await client.list_tools()
+
+for tool in tools:
+    print(f"Tool: {tool.name}")
+    print(f"  Description: {tool.description}")
+    print(f"  Schema: {tool.schema}")
+    print(f"  Annotations: {tool.annotations}")
+```
+
+**Returns:** `list[Tool]`
+
+### Call Tool
+
+```python
+result = await client.call_tool("add", {"a": 5, "b": 3})
+
+if result.error:
+    print(f"Error: {result.error}")
+else:
+    print(f"Result: {result.content.decode()}")
+    print(f"Metadata: {result.metadata}")
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `str` | Tool name to call |
+| `args` | `dict[str, Any]` | Tool arguments |
+
+**Returns:** `ToolResult`
+
+### Tool Result Structure
+
+```python
+@dataclass
+class ToolResult:
+    id: str           # Tool name or call ID
+    content: bytes    # Result content (binary)
+    error: str        # Error message (empty on success)
+    metadata: dict    # Additional metadata
+```
+
+## Resource Operations
+
+### List Resources
+
+```python
+resources = await client.list_resources()
+
+for resource in resources:
+    print(f"Resource: {resource.uri}")
+    print(f"  Name: {resource.name}")
+    print(f"  Description: {resource.description}")
+    print(f"  MIME type: {resource.mime_type}")
+```
+
+**Returns:** `list[Resource]`
+
+### Read Resource
+
+```python
+content = await client.read_resource("file://config.yaml")
+
+print(f"URI: {content.uri}")
+print(f"MIME type: {content.mime_type}")
+
+if content.text is not None:
+    print(f"Text: {content.text}")
+elif content.blob is not None:
+    print(f"Binary data: {len(content.blob)} bytes")
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `uri` | `str` | Resource URI to read |
+
+**Returns:** `ResourceContent`
+
+### Resource Content Structure
+
+```python
+@dataclass
+class ResourceContent:
+    uri: str              # Resource URI
+    mime_type: str        # Content MIME type
+    text: str | None      # Text content (for text types)
+    blob: bytes | None    # Binary content (for binary types)
+```
+
+## Prompt Operations
+
+### List Prompts
+
+```python
+prompts = await client.list_prompts()
+
+for prompt in prompts:
+    print(f"Prompt: {prompt.name}")
+    print(f"  Description: {prompt.description}")
+    for arg in prompt.arguments:
+        req = "required" if arg.required else "optional"
+        print(f"  - {arg.name} ({req}): {arg.description}")
+```
+
+**Returns:** `list[Prompt]`
+
+### Get Prompt
+
+```python
+messages = await client.get_prompt("greeting", {"name": "Alice"})
+
+for msg in messages:
+    print(f"[{msg.role}] {msg.content}")
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `str` | Prompt name |
+| `args` | `dict[str, str] \| None` | Prompt arguments |
+
+**Returns:** `list[PromptMessage]`
+
+### Prompt Message Structure
+
+```python
+@dataclass
+class PromptMessage:
+    role: str      # "user", "assistant", or "system"
+    content: str   # Message content
+```
+
+## Logging
+
+### Send Log Message
+
+```python
+await client.log(
+    level="info",
+    message="Processing completed",
+    data={"items_processed": 42}
+)
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `level` | `str` | Log level: `debug`, `info`, `warn`, `error` |
+| `message` | `str` | Log message |
+| `data` | `dict[str, Any] \| None` | Additional structured data |
+
+## Connection Function
+
+For simple use cases, use the `connect` function:
+
+```python
+from zap import connect
+
+async def main():
+    client = await connect("localhost:9999")
+    try:
+        result = await client.call_tool("hello", {})
+        print(result.content)
+    finally:
+        await client.close()
+```
+
+## Complete Example
+
+```python
+import asyncio
+from zap import Client
+
+async def main():
+    async with Client("localhost:9999") as client:
+        # Discover capabilities
+        tools = await client.list_tools()
+        resources = await client.list_resources()
+        prompts = await client.list_prompts()
+
+        print(f"Server has {len(tools)} tools, {len(resources)} resources, {len(prompts)} prompts")
+
+        # Call a tool
+        if any(t.name == "calculate" for t in tools):
+            result = await client.call_tool("calculate", {"expression": "2 ** 10"})
+            print(f"2^10 = {result.content.decode()}")
+
+        # Read a resource
+        for resource in resources:
+            if resource.uri.startswith("config://"):
+                content = await client.read_resource(resource.uri)
+                print(f"Config: {content.text}")
+                break
+
+        # Get a prompt
+        if any(p.name == "assistant" for p in prompts):
+            messages = await client.get_prompt("assistant", {"context": "Python coding"})
+            for msg in messages:
+                print(f"[{msg.role}] {msg.content[:50]}...")
+
+        # Log activity
+        await client.log("info", "Client operations completed", {
+            "tools_discovered": len(tools),
+            "resources_discovered": len(resources),
+        })
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Error Handling
+
+```python
+async with Client("localhost:9999") as client:
+    result = await client.call_tool("nonexistent", {})
+
+    if result.error:
+        print(f"Tool error: {result.error}")
+    else:
+        print(f"Success: {result.content}")
+```
+
+Tool errors are returned in `ToolResult.error` rather than raising exceptions, allowing graceful handling of partial failures in batch operations.
+
+## Next Steps
+
+- [Server API](/docs/server-api) - Build ZAP servers
+- [Types](/docs/types) - Type definitions
+- [Examples](/docs/examples/async-examples) - Async usage patterns

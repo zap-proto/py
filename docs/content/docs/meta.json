@@ -1,0 +1,18 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "installation",
+    "quickstart",
+    "---",
+    "server-api",
+    "client-api",
+    "types",
+    "---",
+    "identity",
+    "consensus",
+    "crypto",
+    "---",
+    "...examples"
+  ]
+}

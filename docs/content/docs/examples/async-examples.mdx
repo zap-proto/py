@@ -1,0 +1,517 @@
+---
+title: Async Examples
+description: Comprehensive async/await patterns for ZAP Python.
+---
+
+# Async Examples
+
+ZAP is built async-first. This guide covers comprehensive async patterns for tools, resources, prompts, and client operations.
+
+## Async Tool Basics
+
+### Simple Async Tool
+
+```python
+from zap import ZAP
+import asyncio
+
+app = ZAP("async-demo")
+
+@app.tool
+async def delay(seconds: float) -> str:
+    """Wait for specified seconds"""
+    await asyncio.sleep(seconds)
+    return f"Waited {seconds} seconds"
+```
+
+### Async HTTP Requests
+
+```python
+import httpx
+
+@app.tool
+async def fetch_url(url: str) -> dict:
+    """Fetch URL and return metadata"""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return {
+            "url": url,
+            "status": response.status_code,
+            "content_type": response.headers.get("content-type"),
+            "length": len(response.content),
+        }
+
+@app.tool
+async def post_json(url: str, data: dict) -> dict:
+    """POST JSON to URL"""
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=data)
+        return {
+            "status": response.status_code,
+            "response": response.json(),
+        }
+```
+
+### Parallel HTTP Fetches
+
+```python
+import asyncio
+import httpx
+
+@app.tool
+async def fetch_all(urls: list[str]) -> list[dict]:
+    """Fetch multiple URLs in parallel"""
+    async with httpx.AsyncClient() as client:
+        async def fetch_one(url: str) -> dict:
+            try:
+                r = await client.get(url, timeout=10.0)
+                return {"url": url, "status": r.status_code, "ok": True}
+            except Exception as e:
+                return {"url": url, "error": str(e), "ok": False}
+
+        tasks = [fetch_one(url) for url in urls]
+        return await asyncio.gather(*tasks)
+```
+
+## Async Resources
+
+### Database Query Resource
+
+```python
+import asyncpg
+
+# Global connection pool
+pool = None
+
+@app.resource("db://{table}/{id}")
+async def get_record(table: str, id: str) -> dict:
+    """Fetch database record asynchronously"""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT * FROM {table} WHERE id = $1", id
+        )
+        return dict(row) if row else {}
+```
+
+### Redis Cache Resource
+
+```python
+import redis.asyncio as redis
+
+redis_client = redis.Redis()
+
+@app.resource("cache://{key}")
+async def get_cached(key: str) -> str:
+    """Get value from Redis cache"""
+    value = await redis_client.get(key)
+    return value.decode() if value else ""
+```
+
+### File System Resource (Async)
+
+```python
+import aiofiles
+
+@app.resource("file://{path}")
+async def read_file_async(path: str) -> str:
+    """Read file asynchronously"""
+    async with aiofiles.open(path, mode='r') as f:
+        return await f.read()
+
+@app.resource("file://{path}/lines", mime_type="application/json")
+async def read_lines(path: str) -> list[str]:
+    """Read file lines asynchronously"""
+    async with aiofiles.open(path, mode='r') as f:
+        return await f.readlines()
+```
+
+## Async Prompts
+
+### Dynamic Context Loading
+
+```python
+from zap import PromptMessage
+import aiofiles
+
+@app.prompt
+async def contextualized(context_file: str, query: str) -> list[PromptMessage]:
+    """Generate prompt with async context loading"""
+    async with aiofiles.open(context_file, mode='r') as f:
+        context = await f.read()
+
+    return [
+        PromptMessage(role="system", content=f"Context:\n{context}"),
+        PromptMessage(role="user", content=query),
+    ]
+```
+
+### Multi-Source Prompt
+
+```python
+import asyncio
+
+@app.prompt
+async def enriched_prompt(user_id: str, query: str) -> list[PromptMessage]:
+    """Generate prompt with data from multiple async sources"""
+    # Fetch user profile and history in parallel
+    profile, history = await asyncio.gather(
+        fetch_user_profile(user_id),
+        fetch_user_history(user_id, limit=5),
+    )
+
+    return [
+        PromptMessage(
+            role="system",
+            content=f"User profile: {profile}\nRecent history: {history}"
+        ),
+        PromptMessage(role="user", content=query),
+    ]
+
+async def fetch_user_profile(user_id: str) -> dict:
+    await asyncio.sleep(0.01)
+    return {"id": user_id, "name": "User"}
+
+async def fetch_user_history(user_id: str, limit: int) -> list[str]:
+    await asyncio.sleep(0.01)
+    return [f"action_{i}" for i in range(limit)]
+```
+
+## Async Client Patterns
+
+### Basic Client Usage
+
+```python
+import asyncio
+from zap import Client
+
+async def main():
+    async with Client("localhost:9999") as client:
+        # All client methods are async
+        tools = await client.list_tools()
+        print(f"Found {len(tools)} tools")
+
+        result = await client.call_tool("greet", {"name": "World"})
+        print(result.content.decode())
+
+asyncio.run(main())
+```
+
+### Parallel Tool Calls
+
+```python
+async def parallel_tools():
+    async with Client("localhost:9999") as client:
+        # Call multiple tools in parallel
+        results = await asyncio.gather(
+            client.call_tool("add", {"a": 1, "b": 2}),
+            client.call_tool("multiply", {"a": 3, "b": 4}),
+            client.call_tool("divide", {"a": 10, "b": 2}),
+        )
+
+        for result in results:
+            print(result.content.decode())
+```
+
+### Streaming Pattern
+
+```python
+async def stream_results(query: str):
+    async with Client("localhost:9999") as client:
+        # Simulate streaming by calling tool repeatedly
+        while True:
+            result = await client.call_tool("get_updates", {"query": query})
+            data = result.content.decode()
+
+            if data == "DONE":
+                break
+
+            print(f"Update: {data}")
+            await asyncio.sleep(0.5)
+```
+
+### Connection Pool Pattern
+
+```python
+from contextlib import asynccontextmanager
+import asyncio
+from zap import Client
+
+class ClientPool:
+    """Simple async client pool"""
+
+    def __init__(self, address: str, size: int = 5):
+        self.address = address
+        self.size = size
+        self._pool: asyncio.Queue[Client] = asyncio.Queue(maxsize=size)
+        self._initialized = False
+
+    async def initialize(self):
+        if self._initialized:
+            return
+        for _ in range(self.size):
+            client = Client(self.address)
+            await client.connect()
+            await self._pool.put(client)
+        self._initialized = True
+
+    @asynccontextmanager
+    async def acquire(self):
+        await self.initialize()
+        client = await self._pool.get()
+        try:
+            yield client
+        finally:
+            await self._pool.put(client)
+
+    async def close(self):
+        while not self._pool.empty():
+            client = await self._pool.get()
+            await client.close()
+
+# Usage
+pool = ClientPool("localhost:9999", size=10)
+
+async def worker(task_id: int):
+    async with pool.acquire() as client:
+        result = await client.call_tool("process", {"id": task_id})
+        return result.content.decode()
+
+async def process_all(tasks: list[int]):
+    results = await asyncio.gather(*[worker(t) for t in tasks])
+    return results
+```
+
+## Concurrency Patterns
+
+### Semaphore Rate Limiting
+
+```python
+import asyncio
+import httpx
+
+# Limit concurrent requests
+semaphore = asyncio.Semaphore(10)
+
+@app.tool
+async def rate_limited_fetch(url: str) -> dict:
+    """Fetch URL with rate limiting"""
+    async with semaphore:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            return {"url": url, "status": response.status_code}
+```
+
+### Timeout Handling
+
+```python
+import asyncio
+
+@app.tool
+async def fetch_with_timeout(url: str, timeout: float = 5.0) -> dict:
+    """Fetch URL with timeout"""
+    try:
+        async with asyncio.timeout(timeout):
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                return {"url": url, "status": response.status_code}
+    except asyncio.TimeoutError:
+        return {"url": url, "error": "timeout"}
+```
+
+### Retry Pattern
+
+```python
+import asyncio
+import random
+
+async def retry_with_backoff(
+    coro_func,
+    *args,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    **kwargs
+):
+    """Retry async function with exponential backoff"""
+    last_exception = None
+
+    for attempt in range(max_retries):
+        try:
+            return await coro_func(*args, **kwargs)
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                await asyncio.sleep(delay)
+
+    raise last_exception
+
+@app.tool
+async def reliable_fetch(url: str) -> dict:
+    """Fetch URL with automatic retry"""
+    async def do_fetch():
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return {"url": url, "data": response.text[:100]}
+
+    return await retry_with_backoff(do_fetch, max_retries=3)
+```
+
+### Task Queue Pattern
+
+```python
+import asyncio
+from collections.abc import Callable, Awaitable
+from typing import Any
+
+class AsyncTaskQueue:
+    """Simple async task queue"""
+
+    def __init__(self, workers: int = 4):
+        self.queue: asyncio.Queue[tuple[Callable, tuple, dict]] = asyncio.Queue()
+        self.workers = workers
+        self.results: list[Any] = []
+
+    async def add(self, coro_func: Callable[..., Awaitable], *args, **kwargs):
+        await self.queue.put((coro_func, args, kwargs))
+
+    async def worker(self):
+        while True:
+            try:
+                func, args, kwargs = await asyncio.wait_for(
+                    self.queue.get(), timeout=1.0
+                )
+                result = await func(*args, **kwargs)
+                self.results.append(result)
+                self.queue.task_done()
+            except asyncio.TimeoutError:
+                break
+
+    async def run(self) -> list[Any]:
+        workers = [asyncio.create_task(self.worker()) for _ in range(self.workers)]
+        await self.queue.join()
+        for w in workers:
+            w.cancel()
+        return self.results
+
+# Usage in a tool
+task_queue = AsyncTaskQueue(workers=4)
+
+@app.tool
+async def batch_process(items: list[str]) -> list[dict]:
+    """Process items using task queue"""
+    async def process_one(item: str) -> dict:
+        await asyncio.sleep(0.1)  # Simulate work
+        return {"item": item, "processed": True}
+
+    for item in items:
+        await task_queue.add(process_one, item)
+
+    return await task_queue.run()
+```
+
+## Complete Async Server
+
+```python
+from zap import ZAP, PromptMessage
+import asyncio
+import httpx
+
+app = ZAP("async-server", version="1.0.0")
+
+# Rate limiting
+_semaphore = asyncio.Semaphore(20)
+
+@app.tool
+async def fetch(url: str) -> dict:
+    """Fetch URL with rate limiting"""
+    async with _semaphore:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, timeout=10.0)
+            return {
+                "url": url,
+                "status": r.status_code,
+                "headers": dict(r.headers),
+            }
+
+@app.tool
+async def fetch_many(urls: list[str]) -> list[dict]:
+    """Fetch multiple URLs in parallel"""
+    async def fetch_one(url: str) -> dict:
+        try:
+            return await fetch(url)
+        except Exception as e:
+            return {"url": url, "error": str(e)}
+
+    return await asyncio.gather(*[fetch_one(u) for u in urls])
+
+@app.tool
+async def delayed_response(message: str, delay: float) -> dict:
+    """Return message after delay"""
+    await asyncio.sleep(delay)
+    return {"message": message, "delayed_by": delay}
+
+@app.resource("async://counter")
+async def get_counter() -> str:
+    """Get async counter value"""
+    await asyncio.sleep(0.01)
+    return str(asyncio.get_event_loop().time())
+
+@app.prompt
+async def async_context(source: str) -> list[PromptMessage]:
+    """Generate prompt with async context"""
+    # Simulate async context fetch
+    await asyncio.sleep(0.05)
+    context = f"Loaded from {source}"
+
+    return [
+        PromptMessage(role="system", content=context),
+        PromptMessage(role="user", content="Continue..."),
+    ]
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Async Client Example
+
+```python
+import asyncio
+from zap import Client
+
+async def main():
+    async with Client("localhost:9999") as client:
+        # Discover server capabilities
+        tools = await client.list_tools()
+        resources = await client.list_resources()
+        prompts = await client.list_prompts()
+
+        print(f"Server has {len(tools)} tools")
+
+        # Call tools in parallel
+        results = await asyncio.gather(
+            client.call_tool("fetch", {"url": "https://httpbin.org/get"}),
+            client.call_tool("delayed_response", {"message": "Hello", "delay": 0.5}),
+        )
+
+        for r in results:
+            print(r.content.decode()[:100])
+
+        # Batch fetch
+        batch = await client.call_tool("fetch_many", {
+            "urls": [
+                "https://httpbin.org/ip",
+                "https://httpbin.org/user-agent",
+            ]
+        })
+        print(batch.content.decode())
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Next Steps
+
+- [Decorator Patterns](/docs/examples/decorator-patterns) - More decorator patterns
+- [Server API](/docs/server-api) - Server API reference
+- [Client API](/docs/client-api) - Client API reference

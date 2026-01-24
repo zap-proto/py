@@ -1,0 +1,293 @@
+---
+title: Types
+description: Type definitions and dataclasses used throughout ZAP Python.
+---
+
+# Types
+
+ZAP uses Python dataclasses for all data structures, providing clean, typed interfaces.
+
+## Tool Types
+
+### Tool
+
+Represents a registered tool definition.
+
+```python
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class Tool:
+    name: str
+    description: str
+    schema: dict[str, Any] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Tool identifier |
+| `description` | `str` | Human-readable description |
+| `schema` | `dict` | JSON Schema for parameters |
+| `annotations` | `dict` | Custom metadata key-value pairs |
+
+### ToolResult
+
+Result returned from a tool call.
+
+```python
+@dataclass
+class ToolResult:
+    id: str
+    content: bytes = b""
+    error: str = ""
+    metadata: dict[str, str] = field(default_factory=dict)
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `str` | Tool name or call identifier |
+| `content` | `bytes` | Result content (serialized) |
+| `error` | `str` | Error message (empty on success) |
+| `metadata` | `dict` | Additional metadata |
+
+## Resource Types
+
+### Resource
+
+Represents a registered resource definition.
+
+```python
+@dataclass
+class Resource:
+    uri: str
+    name: str
+    description: str = ""
+    mime_type: str = "text/plain"
+    annotations: dict[str, str] = field(default_factory=dict)
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `uri` | `str` | URI template (e.g., `file://{path}`) |
+| `name` | `str` | Resource identifier |
+| `description` | `str` | Human-readable description |
+| `mime_type` | `str` | Content MIME type |
+| `annotations` | `dict` | Custom metadata |
+
+### ResourceContent
+
+Content returned when reading a resource.
+
+```python
+@dataclass
+class ResourceContent:
+    uri: str
+    mime_type: str
+    text: str | None = None
+    blob: bytes | None = None
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `uri` | `str` | Resolved resource URI |
+| `mime_type` | `str` | Content MIME type |
+| `text` | `str \| None` | Text content (mutually exclusive with blob) |
+| `blob` | `bytes \| None` | Binary content (mutually exclusive with text) |
+
+## Prompt Types
+
+### Prompt
+
+Represents a registered prompt definition.
+
+```python
+@dataclass
+class Prompt:
+    name: str
+    description: str = ""
+    arguments: list[PromptArgument] = field(default_factory=list)
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Prompt identifier |
+| `description` | `str` | Human-readable description |
+| `arguments` | `list` | List of prompt arguments |
+
+### PromptArgument
+
+Describes a prompt argument.
+
+```python
+@dataclass
+class PromptArgument:
+    name: str
+    description: str = ""
+    required: bool = False
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Argument name |
+| `description` | `str` | Argument description |
+| `required` | `bool` | Whether argument is required |
+
+### PromptMessage
+
+A message in a prompt response.
+
+```python
+@dataclass
+class PromptMessage:
+    role: str  # "user", "assistant", "system"
+    content: str
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `role` | `str` | Message role: `user`, `assistant`, or `system` |
+| `content` | `str` | Message content |
+
+## Server Types
+
+### ServerInfo
+
+Information about a ZAP server.
+
+```python
+@dataclass
+class ServerInfo:
+    name: str
+    version: str
+    capabilities: Capabilities = field(default_factory=Capabilities)
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Server name |
+| `version` | `str` | Server version |
+| `capabilities` | `Capabilities` | Server capabilities |
+
+### ClientInfo
+
+Information about a ZAP client.
+
+```python
+@dataclass
+class ClientInfo:
+    name: str
+    version: str
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Client name |
+| `version` | `str` | Client version |
+
+### Capabilities
+
+Server capability flags.
+
+```python
+@dataclass
+class Capabilities:
+    tools: bool = True
+    resources: bool = True
+    prompts: bool = True
+    logging: bool = True
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tools` | `bool` | Tools capability enabled |
+| `resources` | `bool` | Resources capability enabled |
+| `prompts` | `bool` | Prompts capability enabled |
+| `logging` | `bool` | Logging capability enabled |
+
+## Usage Examples
+
+### Creating Tools Programmatically
+
+```python
+from zap.types import Tool
+
+tool = Tool(
+    name="search",
+    description="Search for content",
+    schema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "limit": {"type": "integer", "default": 10}
+        },
+        "required": ["query"]
+    },
+    annotations={"category": "search", "version": "1.0"}
+)
+```
+
+### Working with Resources
+
+```python
+from zap.types import Resource, ResourceContent
+
+resource = Resource(
+    uri="db://{table}/{id}",
+    name="database_record",
+    description="Fetch a database record",
+    mime_type="application/json"
+)
+
+content = ResourceContent(
+    uri="db://users/123",
+    mime_type="application/json",
+    text='{"id": 123, "name": "Alice"}'
+)
+```
+
+### Building Prompts
+
+```python
+from zap.types import Prompt, PromptArgument, PromptMessage
+
+prompt = Prompt(
+    name="code_review",
+    description="Generate a code review prompt",
+    arguments=[
+        PromptArgument(name="language", required=True),
+        PromptArgument(name="code", required=True),
+        PromptArgument(name="focus", required=False, description="Areas to focus on")
+    ]
+)
+
+messages = [
+    PromptMessage(role="system", content="You are an expert code reviewer."),
+    PromptMessage(role="user", content="Review this Python code: ...")
+]
+```
+
+## Type Checking
+
+ZAP types work with mypy and other type checkers:
+
+```python
+from zap.types import Tool, ToolResult
+
+def process_tools(tools: list[Tool]) -> None:
+    for tool in tools:
+        print(tool.name)  # Type-safe access
+
+def handle_result(result: ToolResult) -> str:
+    if result.error:
+        return f"Error: {result.error}"
+    return result.content.decode()
+```
+
+## Next Steps
+
+- [Server API](/docs/server-api) - Using types with servers
+- [Client API](/docs/client-api) - Using types with clients
+- [Identity](/docs/identity) - Identity types
+- [Crypto](/docs/crypto) - Cryptographic types

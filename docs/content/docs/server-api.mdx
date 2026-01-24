@@ -1,0 +1,354 @@
+---
+title: Server API
+description: Complete reference for the ZAP class and decorator-based registration.
+---
+
+# Server API
+
+The `ZAP` class is the core server component, providing FastMCP-style decorator-based registration for tools, resources, and prompts.
+
+## ZAP Class
+
+```python
+from zap import ZAP
+
+app = ZAP(
+    name="my-agent",
+    version="1.0.0",
+    enable_tools=True,
+    enable_resources=True,
+    enable_prompts=True,
+    enable_logging=True,
+)
+```
+
+### Constructor Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | required | Server name for identification |
+| `version` | `str` | `"0.1.0"` | Server version string |
+| `enable_tools` | `bool` | `True` | Enable tool registration |
+| `enable_resources` | `bool` | `True` | Enable resource registration |
+| `enable_prompts` | `bool` | `True` | Enable prompt registration |
+| `enable_logging` | `bool` | `True` | Enable logging capability |
+
+### Properties
+
+#### `info`
+
+Returns server information:
+
+```python
+info = app.info
+print(info.name)          # "my-agent"
+print(info.version)       # "1.0.0"
+print(info.capabilities)  # Capabilities object
+```
+
+## Tool Registration
+
+### `@app.tool` Decorator
+
+Register a function as a callable tool:
+
+```python
+@app.tool
+def calculate(expression: str) -> float:
+    """Evaluate a mathematical expression"""
+    return eval(expression)
+
+@app.tool(name="custom_name", description="Custom description")
+def my_function(x: int) -> int:
+    """Original docstring (overridden by description parameter)"""
+    return x * 2
+
+@app.tool(annotations={"category": "math", "complexity": "low"})
+def simple_add(a: int, b: int) -> int:
+    """Add two numbers"""
+    return a + b
+```
+
+### Decorator Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str \| None` | `None` | Override function name |
+| `description` | `str \| None` | `None` | Override docstring |
+| `annotations` | `dict[str, str] \| None` | `None` | Custom metadata |
+
+### Async Tools
+
+```python
+@app.tool
+async def fetch_url(url: str) -> str:
+    """Fetch content from a URL"""
+    import httpx
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return response.text
+```
+
+### Type Inference
+
+ZAP automatically generates JSON Schema from function signatures using Pydantic:
+
+```python
+from pydantic import BaseModel
+
+class SearchParams(BaseModel):
+    query: str
+    limit: int = 10
+    offset: int = 0
+
+@app.tool
+def search(params: SearchParams) -> list[dict]:
+    """Search with structured parameters"""
+    return [{"query": params.query, "page": params.offset // params.limit}]
+```
+
+### Calling Tools Programmatically
+
+```python
+result = await app.call_tool("calculate", {"expression": "2 + 2"})
+print(result.content)  # b"4"
+print(result.error)    # "" (empty on success)
+```
+
+### Listing Tools
+
+```python
+tools = app.list_tools()
+for tool in tools:
+    print(f"{tool.name}: {tool.description}")
+    print(f"  Schema: {tool.schema}")
+```
+
+## Resource Registration
+
+### `@app.resource` Decorator
+
+Register a function as a resource provider:
+
+```python
+@app.resource("file://{path}")
+def read_file(path: str) -> str:
+    """Read a file from disk"""
+    with open(path) as f:
+        return f.read()
+
+@app.resource("config://{section}/{key}", mime_type="application/json")
+def get_config(section: str, key: str) -> dict:
+    """Get configuration value"""
+    return {"section": section, "key": key, "value": "..."}
+
+@app.resource(
+    "data://{id}",
+    name="data_resource",
+    description="Fetch data by ID",
+    mime_type="application/octet-stream",
+)
+def get_binary_data(id: str) -> bytes:
+    """Return binary data"""
+    return b"\x00\x01\x02\x03"
+```
+
+### Decorator Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `uri_template` | `str` | required | URI template with `{param}` placeholders |
+| `name` | `str \| None` | `None` | Override function name |
+| `description` | `str \| None` | `None` | Override docstring |
+| `mime_type` | `str` | `"text/plain"` | Content MIME type |
+| `annotations` | `dict[str, str] \| None` | `None` | Custom metadata |
+
+### Async Resources
+
+```python
+@app.resource("api://{endpoint}")
+async def fetch_api(endpoint: str) -> dict:
+    """Fetch from external API"""
+    import httpx
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"https://api.example.com/{endpoint}")
+        return response.json()
+```
+
+### Reading Resources Programmatically
+
+```python
+content = await app.read_resource("file://README.md")
+print(content.uri)       # "file://README.md"
+print(content.mime_type) # "text/plain"
+print(content.text)      # File contents
+print(content.blob)      # None (or bytes for binary)
+```
+
+### Listing Resources
+
+```python
+resources = app.list_resources()
+for resource in resources:
+    print(f"{resource.uri}: {resource.name}")
+    print(f"  MIME type: {resource.mime_type}")
+```
+
+## Prompt Registration
+
+### `@app.prompt` Decorator
+
+Register a function as a prompt generator:
+
+```python
+from zap import ZAP, PromptMessage
+
+@app.prompt
+def greeting(name: str) -> list[PromptMessage]:
+    """Generate a greeting prompt"""
+    return [
+        PromptMessage(role="system", content="You are a helpful assistant."),
+        PromptMessage(role="assistant", content=f"Hello, {name}!"),
+    ]
+
+@app.prompt(name="code_assistant", description="Generate code assistance prompt")
+def coding_help(language: str, task: str) -> list[PromptMessage]:
+    """Generate coding assistance prompt"""
+    return [
+        PromptMessage(
+            role="system",
+            content=f"You are an expert {language} programmer."
+        ),
+        PromptMessage(
+            role="user",
+            content=f"Help me with: {task}"
+        ),
+    ]
+```
+
+### Decorator Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str \| None` | `None` | Override function name |
+| `description` | `str \| None` | `None` | Override docstring |
+
+### Async Prompts
+
+```python
+@app.prompt
+async def dynamic_prompt(context_id: str) -> list[PromptMessage]:
+    """Generate prompt with async context loading"""
+    context = await load_context(context_id)
+    return [
+        PromptMessage(role="system", content=context),
+        PromptMessage(role="user", content="Continue..."),
+    ]
+```
+
+### Getting Prompts Programmatically
+
+```python
+messages = await app.get_prompt("greeting", {"name": "Alice"})
+for msg in messages:
+    print(f"{msg.role}: {msg.content}")
+```
+
+### Listing Prompts
+
+```python
+prompts = app.list_prompts()
+for prompt in prompts:
+    print(f"{prompt.name}: {prompt.description}")
+    for arg in prompt.arguments:
+        print(f"  - {arg.name} (required={arg.required})")
+```
+
+## Server Lifecycle
+
+### Running the Server
+
+```python
+# Blocking run
+app.run(host="0.0.0.0", port=9999, transport="tcp")
+
+# With custom transport
+app.run(transport="websocket")
+```
+
+### Run Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `host` | `str` | `"0.0.0.0"` | Host to bind to |
+| `port` | `int` | `9999` | Port to listen on |
+| `transport` | `str` | `"tcp"` | Transport type: `tcp`, `unix`, `websocket` |
+
+### Stopping the Server
+
+```python
+app.stop()
+```
+
+## Complete Example
+
+```python
+from zap import ZAP, PromptMessage
+
+app = ZAP("full-example", version="1.0.0")
+
+# Tools
+@app.tool
+def calculate(expression: str) -> float:
+    """Evaluate a mathematical expression safely"""
+    allowed = set("0123456789+-*/(). ")
+    if not all(c in allowed for c in expression):
+        raise ValueError("Invalid characters in expression")
+    return eval(expression)
+
+@app.tool
+async def fetch_weather(city: str) -> dict:
+    """Get current weather for a city"""
+    import httpx
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"https://wttr.in/{city}?format=j1")
+        return resp.json()
+
+# Resources
+@app.resource("env://{var}")
+def get_env(var: str) -> str:
+    """Get environment variable"""
+    import os
+    return os.getenv(var, "")
+
+@app.resource("time://now", mime_type="text/plain")
+def current_time() -> str:
+    """Get current timestamp"""
+    from datetime import datetime
+    return datetime.now().isoformat()
+
+# Prompts
+@app.prompt
+def assistant(context: str = "") -> list[PromptMessage]:
+    """Initialize assistant with optional context"""
+    messages = [
+        PromptMessage(
+            role="system",
+            content="You are a helpful AI assistant."
+        )
+    ]
+    if context:
+        messages.append(
+            PromptMessage(role="system", content=f"Context: {context}")
+        )
+    return messages
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Next Steps
+
+- [Client API](/docs/client-api) - Connect to ZAP servers
+- [Types](/docs/types) - Type definitions
+- [Identity](/docs/identity) - W3C DID support

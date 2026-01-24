@@ -1,0 +1,75 @@
+---
+title: Installation
+description: Install ZAP Python with pip, uv, or from source.
+---
+
+# Installation
+
+ZAP Python requires Python 3.10 or later.
+
+## Using pip
+
+```bash
+pip install zap-py
+```
+
+## Using uv (Recommended)
+
+[uv](https://docs.astral.sh/uv/) is a fast Python package manager written in Rust:
+
+```bash
+uv add zap-py
+```
+
+Or in an existing project:
+
+```bash
+uv pip install zap-py
+```
+
+## From Source
+
+Clone the repository and install in development mode:
+
+```bash
+git clone https://github.com/zap-protocol/zap-py.git
+cd zap-py
+uv sync
+```
+
+## Optional Dependencies
+
+ZAP has optional dependency groups for different use cases:
+
+```bash
+# Full installation with all optional dependencies
+pip install zap-py[all]
+
+# Development dependencies
+pip install zap-py[dev]
+
+# Documentation dependencies
+pip install zap-py[docs]
+```
+
+## Verifying Installation
+
+Verify your installation by importing ZAP:
+
+```python
+from zap import ZAP, Client
+
+app = ZAP("test")
+print(f"ZAP version: {app.version}")
+```
+
+## System Requirements
+
+- Python 3.10+
+- Operating System: Linux, macOS, Windows
+- Architecture: x86_64, arm64
+
+## Next Steps
+
+- [Quick Start](/docs/quickstart) - Build your first ZAP server
+- [Server API](/docs/server-api) - Complete API reference

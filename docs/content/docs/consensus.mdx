@@ -1,0 +1,321 @@
+---
+title: Consensus
+description: Voting-based response aggregation for multi-agent systems.
+---
+
+# Consensus
+
+ZAP provides a voting-based consensus mechanism for aggregating responses from multiple AI agents.
+
+## Overview
+
+The consensus system allows multiple agents to:
+1. Submit queries for collective response
+2. Provide responses to queries
+3. Vote on responses from other agents
+4. Reach consensus when a threshold is met
+
+## AgentConsensus Class
+
+```python
+from zap import AgentConsensus
+
+consensus = AgentConsensus()
+```
+
+### Configuration
+
+```python
+from zap.consensus import ConsensusConfig, AgentConsensus
+
+config = ConsensusConfig(
+    threshold=0.5,      # Required vote fraction (50%)
+    min_responses=1,    # Minimum responses before consensus check
+    min_votes=3,        # Minimum votes before consensus check
+    timeout_secs=60,    # Query timeout in seconds
+)
+
+consensus = AgentConsensus(config)
+```
+
+### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `threshold` | `float` | `0.5` | Required vote fraction for consensus |
+| `min_responses` | `int` | `1` | Minimum responses needed |
+| `min_votes` | `int` | `3` | Minimum votes needed |
+| `timeout_secs` | `int` | `60` | Query timeout |
+
+## Queries
+
+### Creating a Query
+
+```python
+from zap import Query, DID
+
+# Create a DID for the submitting agent
+submitter = DID.parse("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK")
+
+# Create a query
+query = Query.create(
+    content="What is the capital of France?",
+    submitter=submitter
+)
+
+print(query.id)         # Unique hash-based ID
+print(query.content)    # Query content
+print(query.submitter)  # Submitter DID
+print(query.timestamp)  # Unix timestamp
+```
+
+### Submitting a Query
+
+```python
+consensus.submit_query(query)
+```
+
+### Query Structure
+
+```python
+from dataclasses import dataclass, field
+from zap import DID
+import time
+
+@dataclass
+class Query:
+    id: str
+    content: str
+    submitter: DID
+    timestamp: float = field(default_factory=time.time)
+```
+
+## Responses
+
+### Creating a Response
+
+```python
+from zap import Response, DID
+
+responder = DID.parse("did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp")
+
+response = Response.create(
+    query_id=query.id,
+    content="Paris",
+    responder=responder,
+    confidence=0.95  # Optional confidence score
+)
+```
+
+### Submitting a Response
+
+```python
+consensus.submit_response(response)
+```
+
+### Response Structure
+
+```python
+@dataclass
+class Response:
+    id: str
+    query_id: str
+    content: str
+    responder: DID
+    timestamp: float = field(default_factory=time.time)
+    confidence: float = 1.0
+    signature: bytes = b""
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `str` | Unique response ID |
+| `query_id` | `str` | Associated query ID |
+| `content` | `str` | Response content |
+| `responder` | `DID` | Responding agent's DID |
+| `confidence` | `float` | Response confidence (0.0-1.0) |
+| `signature` | `bytes` | Optional cryptographic signature |
+
+## Voting
+
+### Casting a Vote
+
+```python
+from zap import Vote, DID
+
+voter = DID.parse("did:key:z6MknGc3ocHs3zdPiJbnaaqDi58NGb4pk1Sp9WNhTH7nMVHN")
+
+# Vote for a specific response
+consensus.vote(
+    query_id=query.id,
+    response_id=response.id,
+    voter=voter
+)
+```
+
+### Vote Structure
+
+```python
+@dataclass
+class Vote:
+    voter: DID
+    response_id: str
+    timestamp: float = field(default_factory=time.time)
+```
+
+## Checking Consensus
+
+### Try Consensus
+
+```python
+result = consensus.try_consensus(query.id)
+
+if result.response:
+    print(f"Consensus reached!")
+    print(f"Response: {result.response.content}")
+    print(f"Votes: {result.votes}/{result.total_voters}")
+    print(f"Confidence: {result.confidence:.1%}")
+else:
+    print(f"No consensus yet")
+    print(f"Current votes: {result.votes}/{result.total_voters}")
+    print(f"Current confidence: {result.confidence:.1%}")
+```
+
+### ConsensusResult Structure
+
+```python
+@dataclass
+class ConsensusResult:
+    response: Response | None  # Winning response (None if no consensus)
+    votes: int                 # Votes for winning response
+    total_voters: int          # Total unique voters
+    confidence: float          # Vote fraction (votes/total_voters)
+```
+
+### Check if Finalized
+
+```python
+if consensus.is_finalized(query.id):
+    result = consensus.get_result(query.id)
+    print(f"Final answer: {result.response.content}")
+```
+
+## Complete Example
+
+```python
+from zap import AgentConsensus, Query, Response, DID
+from zap.consensus import ConsensusConfig
+
+# Configure consensus
+config = ConsensusConfig(
+    threshold=0.6,      # 60% majority required
+    min_responses=2,    # At least 2 responses
+    min_votes=3,        # At least 3 voters
+)
+consensus = AgentConsensus(config)
+
+# Create agent DIDs
+alice = DID.parse("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK")
+bob = DID.parse("did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp")
+charlie = DID.parse("did:key:z6MknGc3ocHs3zdPiJbnaaqDi58NGb4pk1Sp9WNhTH7nMVHN")
+diana = DID.parse("did:key:z6MkjchhfUsD6mmvni8mCdXHw216Xrm9bQe2mBH1P5RDjVJG")
+
+# Submit a query
+query = Query.create("What is 2 + 2?", alice)
+consensus.submit_query(query)
+print(f"Query submitted: {query.id[:16]}...")
+
+# Agents submit responses
+response_a = Response.create(query.id, "4", bob, confidence=0.99)
+response_b = Response.create(query.id, "4", charlie, confidence=0.95)
+response_c = Response.create(query.id, "5", diana, confidence=0.5)  # Wrong answer
+
+consensus.submit_response(response_a)
+consensus.submit_response(response_b)
+consensus.submit_response(response_c)
+print(f"Received 3 responses")
+
+# Agents vote
+consensus.vote(query.id, response_a.id, alice)   # Alice votes for Bob's answer
+consensus.vote(query.id, response_a.id, charlie) # Charlie votes for Bob's answer
+consensus.vote(query.id, response_b.id, bob)     # Bob votes for Charlie's answer
+consensus.vote(query.id, response_c.id, diana)   # Diana votes for her own answer
+
+# Check consensus
+result = consensus.try_consensus(query.id)
+
+if result.response:
+    print(f"\nConsensus reached!")
+    print(f"Answer: {result.response.content}")
+    print(f"Votes: {result.votes}/{result.total_voters}")
+    print(f"Confidence: {result.confidence:.1%}")
+else:
+    print(f"\nNo consensus - confidence {result.confidence:.1%} < 60%")
+```
+
+Output:
+```
+Query submitted: 7a3f8b2c1d9e4f5a...
+Received 3 responses
+
+Consensus reached!
+Answer: 4
+Votes: 2/4
+Confidence: 50.0%
+```
+
+## Integration with ZAP Server
+
+```python
+from zap import ZAP, AgentConsensus, Query, Response, DID
+from zap.consensus import ConsensusConfig
+
+app = ZAP("consensus-coordinator")
+
+# Global consensus engine
+consensus = AgentConsensus(ConsensusConfig(threshold=0.5, min_votes=2))
+
+@app.tool
+def submit_query(content: str, submitter_did: str) -> dict:
+    """Submit a new query for consensus"""
+    did = DID.parse(submitter_did)
+    query = Query.create(content, did)
+    consensus.submit_query(query)
+    return {"query_id": query.id}
+
+@app.tool
+def submit_response(query_id: str, content: str, responder_did: str, confidence: float = 1.0) -> dict:
+    """Submit a response to a query"""
+    did = DID.parse(responder_did)
+    response = Response.create(query_id, content, did, confidence)
+    consensus.submit_response(response)
+    return {"response_id": response.id}
+
+@app.tool
+def vote(query_id: str, response_id: str, voter_did: str) -> dict:
+    """Vote for a response"""
+    did = DID.parse(voter_did)
+    consensus.vote(query_id, response_id, did)
+    return {"status": "voted"}
+
+@app.tool
+def check_consensus(query_id: str) -> dict:
+    """Check consensus status for a query"""
+    result = consensus.try_consensus(query_id)
+    return {
+        "has_consensus": result.response is not None,
+        "content": result.response.content if result.response else None,
+        "votes": result.votes,
+        "total_voters": result.total_voters,
+        "confidence": result.confidence,
+    }
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Next Steps
+
+- [Identity](/docs/identity) - DID support for consensus participants
+- [Crypto](/docs/crypto) - Signing responses cryptographically
+- [Examples](/docs/examples/async-examples) - Async consensus patterns
