@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     template: '%s | ZAP Python',
     default: 'ZAP Python Documentation',
   },
-  description: 'High-performance Cap\'n Proto RPC for Python AI agents with post-quantum security',
+  description: 'Python bindings for ZAP - Zero-Copy App Proto for AI agent communication',
   metadataBase: new URL('https://zap-protocol.github.io/zap-py'),
 };
 
