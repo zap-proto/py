@@ -1,5 +1,8 @@
 # ZAP Python
 
+> **Docs:** [ZAP Python SDK](https://zap-proto.dev/docs/sdks/python) · part of the [ZAP Protocol](https://zap-proto.io)
+
+
 Python bindings for **ZAP** (Zero-Copy App Proto) - high-performance Cap'n Proto RPC for AI agents.
 
 Inspired by [FastMCP](https://github.com/jlowin/fastmcp) with decorator-based API.
