@@ -19,7 +19,9 @@ Example:
 """
 
 # Wire-format submodule is pure-stdlib and always importable.
-from zap import protocol  # noqa: F401
+from zap import protocol, frame  # noqa: F401
+from zap.client import Client, ZapClient  # noqa: F401
+from zap.frame import Frame  # noqa: F401
 
 # The capnproto-backed RPC / identity / consensus / crypto modules require
 # the optional `[capnp]` extra (pycapnp, pydantic, httpx, anyio + the `capnp`
@@ -49,11 +51,14 @@ except ImportError:
     # Capnp extras not installed. `zap.protocol` still works.
     pass
 
-__version__ = "0.3.0"
+__version__ = "1.1.0"
 __all__ = [
     # Core
     "ZAP",
     "Client",
+    "ZapClient",
+    "Frame",
+    "frame",
     # Types
     "Tool",
     "ToolResult",
