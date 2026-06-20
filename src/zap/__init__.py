@@ -1,72 +1,136 @@
+"""ZAP — Zero-copy App Proto for Python.
+
+The core is the zero-copy wire codec (:mod:`zap.wire`): a pure-stdlib,
+byte-faithful port of the canonical Go runtime (``zap-proto/go``). It is always
+importable with no third-party dependency on the import path::
+
+    from zap import Builder, parse
+
+    b = Builder()
+    ob = b.start_object(8)
+    ob.set_uint32(0, 0xDEADBEEF)
+    ob.finish_as_root()
+    msg = parse(b.finish())
+    assert msg.root().uint32(0) == 0xDEADBEEF
+
+Also pure-stdlib and always available: the router-envelope codec
+(:mod:`zap.frame` + :class:`ZapClient`), the browser/agent JSON framing
+(:mod:`zap.protocol`), W3C DID identity (:mod:`zap.identity`), and agent
+consensus (:mod:`zap.consensus`).
+
+Two areas need an extra and are imported lazily — accessing the name raises a
+clear ImportError (never a silent stub) if the extra is missing:
+
+* :mod:`zap.crypto` (``[crypto]``) — real ML-KEM-768 / ML-DSA-65 / X25519;
+* :class:`ZAP` and the HTTP :class:`Client` (``[app]``) — pydantic + httpx.
 """
-ZAP - Zero-Copy App Proto for Python
 
-High-performance Cap'n Proto RPC for AI agent communication.
-FastMCP-inspired API with decorator-based tool/resource/prompt registration.
+from __future__ import annotations
 
-Example:
-    >>> from zap import ZAP
-    >>>
-    >>> app = ZAP("my-agent")
-    >>>
-    >>> @app.tool
-    >>> def search(query: str) -> list[str]:
-    ...     '''Search for content'''
-    ...     return [f"Found: {query}"]
-    >>>
-    >>> if __name__ == "__main__":
-    ...     app.run()
-"""
+from typing import TYPE_CHECKING, Any
 
-# Wire-format submodule is pure-stdlib and always importable.
-from zap import protocol, frame  # noqa: F401
-from zap.client import Client, ZapClient  # noqa: F401
-from zap.frame import Frame  # noqa: F401
+# ── Core: zero-copy wire codec (pure stdlib, always importable) ─────────────
+from zap import frame, protocol, wire
 
-# The capnproto-backed RPC / identity / consensus / crypto modules require
-# the optional `[capnp]` extra (pycapnp, pydantic, httpx, anyio + the `capnp`
-# C library). Import lazily so a minimal install — for consumers that only
-# need `from zap.protocol import ...` — does not fail at package import.
-try:
+# ZapClient (router UDS client) is pure-stdlib; the HTTP Client is not, so it
+# is resolved lazily below.
+from zap.client import ZapClient
+from zap.consensus import AgentConsensus, Query, Response, Vote
+from zap.frame import Frame
+from zap.identity import DID, DIDMethod
+from zap.types import (
+    Capabilities,
+    ClientInfo,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
+    Resource,
+    ResourceContent,
+    ServerInfo,
+    Tool,
+    ToolResult,
+)
+from zap.wire import (
+    DEFAULT_PORT,
+    HEADER_SIZE,
+    MAGIC,
+    VERSION,
+    VERSION1,
+    VERSION2,
+    Builder,
+    List,
+    ListBuilder,
+    Message,
+    Object,
+    ObjectBuilder,
+    ZapError,
+    parse,
+)
+
+if TYPE_CHECKING:  # for type checkers / IDEs only — not imported at runtime
     from zap.app import ZAP
     from zap.client import Client
-    from zap.types import (
-        Tool,
-        ToolResult,
-        Resource,
-        ResourceContent,
-        Prompt,
-        PromptMessage,
-        ServerInfo,
-    )
-    from zap.identity import DID, DIDMethod
-    from zap.consensus import AgentConsensus, Query, Response, Vote
-    from zap.crypto import (
-        MLKEMKeyPair,
-        MLDSAKeyPair,
-        X25519KeyPair,
-        HybridKeyExchange,
-    )
-except ImportError:
-    # Capnp extras not installed. `zap.protocol` still works.
-    pass
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
+
+# Names served lazily by __getattr__ -> (module, attribute). Importing these
+# pulls the [app] extra (pydantic/httpx); a missing extra raises ImportError.
+_LAZY: dict[str, tuple[str, str]] = {
+    "ZAP": ("zap.app", "ZAP"),
+    "Client": ("zap.client", "Client"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    target = _LAZY.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    mod = importlib.import_module(target[0])
+    return getattr(mod, target[1])
+
+
+def __dir__() -> list[str]:
+    return sorted(list(globals()) + list(_LAZY))
+
+
 __all__ = [
-    # Core
+    # Wire codec (the product)
+    "wire",
+    "parse",
+    "Message",
+    "Object",
+    "List",
+    "Builder",
+    "ObjectBuilder",
+    "ListBuilder",
+    "ZapError",
+    "MAGIC",
+    "VERSION",
+    "VERSION1",
+    "VERSION2",
+    "HEADER_SIZE",
+    "DEFAULT_PORT",
+    # Router / framing
+    "frame",
+    "protocol",
+    "Frame",
+    "ZapClient",
+    # App (lazy — needs [app] extra)
     "ZAP",
     "Client",
-    "ZapClient",
-    "Frame",
-    "frame",
     # Types
     "Tool",
     "ToolResult",
     "Resource",
     "ResourceContent",
     "Prompt",
+    "PromptArgument",
     "PromptMessage",
     "ServerInfo",
+    "ClientInfo",
+    "Capabilities",
     # Identity
     "DID",
     "DIDMethod",
@@ -75,9 +139,4 @@ __all__ = [
     "Query",
     "Response",
     "Vote",
-    # Crypto
-    "MLKEMKeyPair",
-    "MLDSAKeyPair",
-    "X25519KeyPair",
-    "HybridKeyExchange",
 ]

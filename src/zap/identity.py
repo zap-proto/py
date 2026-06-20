@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class DIDMethod(str, Enum):
+class DIDMethod(StrEnum):
     """Supported DID methods."""
 
     LUX = "lux"
@@ -48,8 +47,8 @@ class DID:
 
         try:
             method = DIDMethod(method_str)
-        except ValueError:
-            raise ValueError(f"Unsupported DID method: {method_str}")
+        except ValueError as e:
+            raise ValueError(f"Unsupported DID method: {method_str}") from e
 
         if not id_part:
             raise ValueError("DID identifier cannot be empty")

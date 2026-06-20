@@ -11,22 +11,25 @@ import inspect
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
 
 from zap.types import (
-    Tool,
-    ToolResult,
-    Resource,
-    ResourceContent,
+    Capabilities,
     Prompt,
     PromptArgument,
     PromptMessage,
+    Resource,
+    ResourceContent,
     ServerInfo,
-    Capabilities,
+    Tool,
+    ToolResult,
 )
+
+if TYPE_CHECKING:
+    from zap.rpc import Server
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -50,8 +53,9 @@ def _get_schema_from_func(func: Callable[..., Any]) -> dict[str, Any]:
         else:
             fields[name] = (annotation, param.default)
 
-    model = create_model(f"{func.__name__}_args", **fields)  # type: ignore
-    return model.model_json_schema()
+    model = create_model(f"{func.__name__}_args", **fields)  # type: ignore[call-overload]
+    schema: dict[str, Any] = model.model_json_schema()
+    return schema
 
 
 @dataclass
@@ -160,6 +164,7 @@ class ZAP:
         self._resources: dict[str, RegisteredResource] = {}
         self._prompts: dict[str, RegisteredPrompt] = {}
         self._running = False
+        self._server: Server | None = None
 
     @property
     def info(self) -> ServerInfo:
@@ -306,11 +311,20 @@ class ZAP:
 
     @staticmethod
     def _match_uri_template(template: str, uri: str) -> dict[str, str] | None:
-        """Match a URI against a template and extract parameters."""
+        """Match a URI against a template and extract ``{param}`` segments.
+
+        The literal parts of the template are regex-escaped, so a ``.`` in
+        ``file://a.b`` matches a literal dot, not any character — no
+        over-matching or ReDoS surface from template text.
+        """
         import re
 
-        # Convert template to regex: {param} -> (?P<param>[^/]+)
-        pattern = re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", template)
+        # Split on {param} placeholders, escape the literal pieces, and replace
+        # each placeholder with a named capture group.
+        parts = re.split(r"\{(\w+)\}", template)
+        pattern = "".join(
+            f"(?P<{piece}>[^/]+)" if i % 2 else re.escape(piece) for i, piece in enumerate(parts)
+        )
         match = re.fullmatch(pattern, uri)
         if match:
             return match.groupdict()
@@ -364,9 +378,7 @@ class ZAP:
             return decorator(func)
         return decorator
 
-    async def get_prompt(
-        self, name: str, args: dict[str, str]
-    ) -> list[PromptMessage]:
+    async def get_prompt(self, name: str, args: dict[str, str]) -> list[PromptMessage]:
         """Get a prompt by name with arguments."""
         if name not in self._prompts:
             raise ValueError(f"Prompt not found: {name}")
@@ -375,13 +387,102 @@ class ZAP:
         result = prompt.generator(**args)
         if asyncio.iscoroutine(result):
             result = await result
-        return result
+        messages: list[PromptMessage] = result
+        return messages
 
     def list_prompts(self) -> list[Prompt]:
         """List all registered prompts."""
         return [p.to_prompt() for p in self._prompts.values()]
 
     # ========== Server Lifecycle ==========
+
+    def build_rpc_server(self, host: str = "0.0.0.0", port: int = 9999) -> Server:
+        """Build a :class:`zap.rpc.Server` wired to this app's registrations.
+
+        Each :class:`~zap.rpc.Method` ordinal is bound to a handler that calls
+        the corresponding registry. Params and results are JSON values — the
+        same shapes the decorator API already produces. Returned unbound (call
+        :meth:`~zap.rpc.Server.bind` / ``serve_forever``) so callers and tests
+        control the lifecycle.
+        """
+        from zap.rpc import Method, Server
+
+        server = Server(host=host, port=port)
+        server.handle(Method.INIT, lambda _p: self._rpc_info())
+        server.handle(Method.LIST_TOOLS, lambda _p: [self._tool_json(t) for t in self.list_tools()])
+        server.handle(Method.CALL_TOOL, self._rpc_call_tool)
+        server.handle(
+            Method.LIST_RESOURCES,
+            lambda _p: [self._resource_json(r) for r in self.list_resources()],
+        )
+        server.handle(Method.READ_RESOURCE, self._rpc_read_resource)
+        server.handle(
+            Method.LIST_PROMPTS, lambda _p: [self._prompt_json(p) for p in self.list_prompts()]
+        )
+        server.handle(Method.GET_PROMPT, self._rpc_get_prompt)
+        server.handle(Method.LOG, lambda _p: None)
+        return server
+
+    def _rpc_info(self) -> dict[str, Any]:
+        info = self.info
+        return {
+            "name": info.name,
+            "version": info.version,
+            "capabilities": {
+                "tools": info.capabilities.tools,
+                "resources": info.capabilities.resources,
+                "prompts": info.capabilities.prompts,
+                "logging": info.capabilities.logging,
+            },
+        }
+
+    @staticmethod
+    def _tool_json(tool: Tool) -> dict[str, Any]:
+        return {"name": tool.name, "description": tool.description, "schema": tool.schema}
+
+    @staticmethod
+    def _resource_json(resource: Resource) -> dict[str, Any]:
+        return {
+            "uri": resource.uri,
+            "name": resource.name,
+            "description": resource.description,
+            "mimeType": resource.mime_type,
+        }
+
+    @staticmethod
+    def _prompt_json(prompt: Prompt) -> dict[str, Any]:
+        return {
+            "name": prompt.name,
+            "description": prompt.description,
+            "arguments": [
+                {"name": a.name, "description": a.description, "required": a.required}
+                for a in prompt.arguments
+            ],
+        }
+
+    def _rpc_call_tool(self, params: Any) -> dict[str, Any]:
+        params = params or {}
+        result = _run_sync(self.call_tool(params.get("name", ""), params.get("args") or {}))
+        return {
+            "id": result.id,
+            "content": result.content.decode("utf-8", "replace"),
+            "error": result.error,
+        }
+
+    def _rpc_read_resource(self, params: Any) -> dict[str, Any]:
+        params = params or {}
+        content = _run_sync(self.read_resource(params.get("uri", "")))
+        return {
+            "uri": content.uri,
+            "mimeType": content.mime_type,
+            "text": content.text,
+            "blob": content.blob.decode("utf-8", "replace") if content.blob else None,
+        }
+
+    def _rpc_get_prompt(self, params: Any) -> list[dict[str, Any]]:
+        params = params or {}
+        messages = _run_sync(self.get_prompt(params.get("name", ""), params.get("args") or {}))
+        return [{"role": m.role, "content": m.content} for m in messages]
 
     def run(
         self,
@@ -390,34 +491,42 @@ class ZAP:
         *,
         transport: str = "tcp",
     ) -> None:
-        """
-        Run the ZAP server.
+        """Run the ZAP RPC server until interrupted.
 
         Args:
             host: Host to bind to (default: 0.0.0.0)
             port: Port to listen on (default: 9999)
-            transport: Transport type (tcp, unix, websocket)
+            transport: Transport type (only ``tcp`` is implemented)
         """
-        asyncio.run(self._run_async(host, port, transport))
-
-    async def _run_async(self, host: str, port: int, transport: str) -> None:
-        """Run the server asynchronously."""
+        if transport != "tcp":
+            raise ValueError(f"unsupported transport: {transport!r} (only 'tcp')")
+        server = self.build_rpc_server(host=host, port=port)
+        bound = server.bind()
+        self._server = server
         self._running = True
-        print(f"🚀 ZAP server '{self.name}' v{self.version} starting...")
-        print(f"   Listening on {transport}://{host}:{port}")
-        print(f"   Tools: {len(self._tools)}")
-        print(f"   Resources: {len(self._resources)}")
-        print(f"   Prompts: {len(self._prompts)}")
-
-        # TODO: Implement actual Cap'n Proto RPC server
-        # For now, just keep the event loop running
+        print(f"ZAP server '{self.name}' v{self.version} listening on tcp://{host}:{bound}")
+        print(
+            f"  tools={len(self._tools)} resources={len(self._resources)} "
+            f"prompts={len(self._prompts)}"
+        )
         try:
-            while self._running:
-                await asyncio.sleep(1)
+            server.serve_forever()
         except KeyboardInterrupt:
-            print("\n👋 Shutting down...")
-            self._running = False
+            pass
+        finally:
+            self.stop()
 
     def stop(self) -> None:
         """Stop the running server."""
         self._running = False
+        server = getattr(self, "_server", None)
+        if server is not None:
+            server.close()
+            self._server = None
+
+
+def _run_sync(coro: Any) -> Any:
+    """Run a coroutine to completion from synchronous RPC-handler context."""
+    if not asyncio.iscoroutine(coro):
+        return coro
+    return asyncio.run(coro)
