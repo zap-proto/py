@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import Any
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:  # Python 3.10: StrEnum landed in 3.11. Faithful backport (str mixin + value __str__).
+    from enum import Enum
+
+    class StrEnum(str, Enum):  # noqa: D101
+        __str__ = str.__str__
 
 
 class DIDMethod(StrEnum):
