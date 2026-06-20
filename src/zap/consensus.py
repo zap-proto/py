@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any
 
 from zap.identity import DID
 
@@ -124,7 +122,9 @@ class AgentConsensus:
     def __init__(self, config: ConsensusConfig | None = None):
         self.config = config or ConsensusConfig()
         self._queries: dict[str, Query] = {}
-        self._responses: dict[str, dict[str, Response]] = {}  # query_id -> {response_id -> response}
+        self._responses: dict[
+            str, dict[str, Response]
+        ] = {}  # query_id -> {response_id -> response}
         self._votes: dict[str, dict[str, list[DID]]] = {}  # query_id -> {response_id -> voters}
         self._finalized: dict[str, str] = {}  # query_id -> response_id
 
@@ -174,13 +174,13 @@ class AgentConsensus:
         if query_id in self._finalized:
             response_id = self._finalized[query_id]
             response = self._responses[query_id][response_id]
-            votes = len(self._votes[query_id][response_id])
+            vote_count = len(self._votes[query_id][response_id])
             total = self._count_total_voters(query_id)
             return ConsensusResult(
                 response=response,
-                votes=votes,
+                votes=vote_count,
                 total_voters=total,
-                confidence=votes / total if total > 0 else 0.0,
+                confidence=vote_count / total if total > 0 else 0.0,
             )
 
         responses = self._responses.get(query_id, {})
@@ -206,9 +206,7 @@ class AgentConsensus:
             )
 
         # Find response with most votes
-        vote_counts = {
-            resp_id: len(voters) for resp_id, voters in votes.items()
-        }
+        vote_counts = {resp_id: len(voters) for resp_id, voters in votes.items()}
 
         if not vote_counts:
             return ConsensusResult(

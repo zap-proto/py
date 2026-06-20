@@ -1,139 +1,189 @@
-"""ZAP Client for connecting to ZAP servers."""
+"""ZAP clients.
+
+:class:`Client` is a real synchronous ZAP RPC client over TCP (it speaks the
+:mod:`zap.rpc` envelope and dispatches the ``Zap`` method ordinals).
+:class:`ZapClient` is the router client that talks to the local ``zapd`` daemon
+over its Unix domain socket.
+
+Both are pure stdlib — no third-party dependency on the import path.
+"""
 
 from __future__ import annotations
 
-import json
+import contextlib
+import os
+import socket
+import threading
+from collections.abc import Iterable
 from typing import Any
 
-import httpx
-
+from zap import frame
+from zap.frame import (
+    ERROR,
+    HELLO,
+    PROVIDERS,
+    PROVIDERS_LIST,
+    RESPONSE,
+    ROLE_CONSUMER,
+    ROLE_PROVIDER,
+    ROLE_ROUTER,
+    ROUTE,
+    WELCOME,
+    Frame,
+    Provider,
+)
+from zap.rpc import Client as _RpcClient
+from zap.rpc import Method
 from zap.types import (
-    Tool,
-    ToolResult,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
     Resource,
     ResourceContent,
-    Prompt,
-    PromptMessage,
     ServerInfo,
-    Capabilities,
+    Tool,
+    ToolResult,
 )
+
+_ROLES = {"consumer": ROLE_CONSUMER, "provider": ROLE_PROVIDER, "router": ROLE_ROUTER}
+
+
+def _parse_address(address: str) -> tuple[str, int]:
+    """Parse ``host:port`` or ``zap://host:port`` into ``(host, port)``."""
+    addr = address
+    if "://" in addr:
+        addr = addr.split("://", 1)[1]
+    host, _, port = addr.rpartition(":")
+    if not host or not port:
+        raise ValueError(f"invalid ZAP address: {address!r} (want host:port)")
+    return host, int(port)
+
+
+def _capabilities(info: dict[str, Any]) -> ServerInfo:
+    from zap.types import Capabilities, ServerInfo
+
+    caps = info.get("capabilities") or {}
+    return ServerInfo(
+        name=info.get("name", ""),
+        version=info.get("version", ""),
+        capabilities=Capabilities(
+            tools=caps.get("tools", True),
+            resources=caps.get("resources", True),
+            prompts=caps.get("prompts", True),
+            logging=caps.get("logging", True),
+        ),
+    )
 
 
 class Client:
-    """
-    ZAP Client for connecting to ZAP servers.
+    """Synchronous ZAP RPC client.
 
     Example:
-        >>> async with Client("localhost:9999") as client:
-        ...     tools = await client.list_tools()
-        ...     result = await client.call_tool("search", {"query": "hello"})
+        >>> with Client("localhost:9999") as client:
+        ...     tools = client.list_tools()
+        ...     result = client.call_tool("search", {"query": "hello"})
     """
 
-    def __init__(self, address: str, *, transport: str = "tcp"):
-        """
-        Initialize a ZAP client.
-
-        Args:
-            address: Server address (host:port)
-            transport: Transport type (tcp, unix, websocket)
-        """
+    def __init__(self, address: str):
         self.address = address
-        self.transport = transport
-        self._http = httpx.AsyncClient()
-        self._connected = False
+        self._host, self._port = _parse_address(address)
+        self._rpc: _RpcClient | None = None
 
-    async def __aenter__(self) -> Client:
-        await self.connect()
+    def __enter__(self) -> Client:
+        self.connect()
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
-        await self.close()
+    def __exit__(self, *args: Any) -> None:
+        self.close()
 
-    async def connect(self, name: str = "zap-client", version: str = "0.1.0") -> ServerInfo:
-        """Connect to the ZAP server."""
-        # TODO: Implement Cap'n Proto RPC connection
-        # For now, return mock server info
-        self._connected = True
-        return ServerInfo(
-            name="mock-server",
-            version="0.1.0",
-            capabilities=Capabilities(),
+    @property
+    def _conn(self) -> _RpcClient:
+        if self._rpc is None:
+            raise RuntimeError("client not connected; call connect() first")
+        return self._rpc
+
+    def connect(self, name: str = "zap-client", version: str = "0.1.0") -> ServerInfo:
+        """Connect and perform the ``init`` handshake; return server info."""
+        self._rpc = _RpcClient.connect(self._host, self._port)
+        info = self._conn.call(Method.INIT, {"name": name, "version": version})
+        return _capabilities(info)
+
+    def close(self) -> None:
+        if self._rpc is not None:
+            self._rpc.close()
+            self._rpc = None
+
+    def list_tools(self) -> list[Tool]:
+        rows = self._conn.call(Method.LIST_TOOLS) or []
+        return [
+            Tool(name=r["name"], description=r.get("description", ""), schema=r.get("schema") or {})
+            for r in rows
+        ]
+
+    def call_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
+        r = self._conn.call(Method.CALL_TOOL, {"name": name, "args": args}) or {}
+        return ToolResult(
+            id=r.get("id", name),
+            content=(r.get("content") or "").encode("utf-8"),
+            error=r.get("error", ""),
         )
 
-    async def close(self) -> None:
-        """Close the connection."""
-        self._connected = False
-        await self._http.aclose()
+    def list_resources(self) -> list[Resource]:
+        rows = self._conn.call(Method.LIST_RESOURCES) or []
+        return [
+            Resource(
+                uri=r["uri"],
+                name=r.get("name", ""),
+                description=r.get("description", ""),
+                mime_type=r.get("mimeType", "text/plain"),
+            )
+            for r in rows
+        ]
 
-    async def list_tools(self) -> list[Tool]:
-        """List available tools."""
-        # TODO: Implement Cap'n Proto RPC call
-        return []
+    def read_resource(self, uri: str) -> ResourceContent:
+        r = self._conn.call(Method.READ_RESOURCE, {"uri": uri}) or {}
+        blob = r.get("blob")
+        return ResourceContent(
+            uri=r.get("uri", uri),
+            mime_type=r.get("mimeType", "text/plain"),
+            text=r.get("text"),
+            blob=blob.encode("utf-8") if blob is not None else None,
+        )
 
-    async def call_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-        """Call a tool by name."""
-        # TODO: Implement Cap'n Proto RPC call
-        return ToolResult(id=name, error="Not implemented")
+    def list_prompts(self) -> list[Prompt]:
+        rows = self._conn.call(Method.LIST_PROMPTS) or []
+        return [
+            Prompt(
+                name=r["name"],
+                description=r.get("description", ""),
+                arguments=[
+                    PromptArgument(
+                        name=a["name"],
+                        description=a.get("description", ""),
+                        required=a.get("required", False),
+                    )
+                    for a in r.get("arguments", [])
+                ],
+            )
+            for r in rows
+        ]
 
-    async def list_resources(self) -> list[Resource]:
-        """List available resources."""
-        # TODO: Implement Cap'n Proto RPC call
-        return []
+    def get_prompt(self, name: str, args: dict[str, str] | None = None) -> list[PromptMessage]:
+        rows = self._conn.call(Method.GET_PROMPT, {"name": name, "args": args or {}}) or []
+        return [PromptMessage(role=m["role"], content=m["content"]) for m in rows]
 
-    async def read_resource(self, uri: str) -> ResourceContent:
-        """Read a resource by URI."""
-        # TODO: Implement Cap'n Proto RPC call
-        return ResourceContent(uri=uri, mime_type="text/plain", text="")
-
-    async def list_prompts(self) -> list[Prompt]:
-        """List available prompts."""
-        # TODO: Implement Cap'n Proto RPC call
-        return []
-
-    async def get_prompt(
-        self, name: str, args: dict[str, str] | None = None
-    ) -> list[PromptMessage]:
-        """Get a prompt by name with arguments."""
-        # TODO: Implement Cap'n Proto RPC call
-        return []
-
-    async def log(
-        self, level: str, message: str, data: dict[str, Any] | None = None
-    ) -> None:
-        """Send a log message to the server."""
-        # TODO: Implement Cap'n Proto RPC call
-        pass
+    def log(self, level: str, message: str, data: dict[str, Any] | None = None) -> None:
+        self._conn.call(Method.LOG, {"level": level, "message": message, "data": data})
 
 
-async def connect(address: str, **kwargs: Any) -> Client:
+def connect(address: str) -> Client:
     """Create and connect a ZAP client."""
-    client = Client(address, **kwargs)
-    await client.connect()
+    client = Client(address)
+    client.connect()
     return client
 
 
 # ── Router client — talk to the local zapd daemon over its UDS ─────────────
-
-import os as _os
-import socket as _socket
-import threading as _threading
-
-from zap import frame as _frame
-from zap.frame import (
-    ERROR as _ERROR,
-    HELLO as _HELLO,
-    PROVIDERS as _PROVIDERS,
-    PROVIDERS_LIST as _PROVIDERS_LIST,
-    RESPONSE as _RESPONSE,
-    ROLE_CONSUMER as _ROLE_CONSUMER,
-    ROLE_PROVIDER as _ROLE_PROVIDER,
-    ROLE_ROUTER as _ROLE_ROUTER,
-    ROUTE as _ROUTE,
-    WELCOME as _WELCOME,
-    Frame as _Frame,
-)
-
-_ROLES = {"consumer": _ROLE_CONSUMER, "provider": _ROLE_PROVIDER, "router": _ROLE_ROUTER}
 
 
 class ZapClient:
@@ -146,10 +196,10 @@ class ZapClient:
     b'{"targetInfos": ...}'
     """
 
-    def __init__(self, sock: "_socket.socket", node_id: str):
+    def __init__(self, sock: socket.socket, node_id: str):
         self._sock = sock
         self.node_id = node_id
-        self._lock = _threading.Lock()
+        self._lock = threading.Lock()
 
     @classmethod
     def connect(
@@ -157,52 +207,58 @@ class ZapClient:
         id: str | None = None,
         role: str = "consumer",
         brand: str = "hanzo",
-        caps=(),
+        caps: Iterable[str] = (),
         path: str | None = None,
         timeout: float = 10.0,
-    ) -> "ZapClient":
-        node_id = id or f"consumer:zap/{_os.getpid()}"
-        s = _socket.socket(_socket.AF_UNIX)
+    ) -> ZapClient:
+        node_id = id or f"consumer:zap/{os.getpid()}"
+        s = socket.socket(socket.AF_UNIX)
         s.settimeout(timeout)
-        s.connect(path or _frame.socket_path())
+        s.connect(path or frame.socket_path())
         c = cls(s, node_id)
         c.hello(role=role, id=node_id, brand=brand, caps=caps)
         return c
 
-    def hello(self, role: str = "consumer", id: str | None = None, brand: str = "hanzo", caps=()) -> None:
+    def hello(
+        self,
+        role: str | int = "consumer",
+        id: str | None = None,
+        brand: str = "hanzo",
+        caps: Iterable[str] = (),
+    ) -> None:
         if id:
             self.node_id = id
-        r = _ROLES.get(role, _ROLE_CONSUMER) if isinstance(role, str) else role
-        self._sock.sendall(_Frame(_HELLO, self.node_id, "", _frame.encode_hello(r, brand, list(caps))).encode())
-        self._read_until(_WELCOME)
+        r = _ROLES.get(role, ROLE_CONSUMER) if isinstance(role, str) else role
+        self._sock.sendall(
+            Frame(HELLO, self.node_id, "", frame.encode_hello(r, brand, list(caps))).encode()
+        )
+        self._read_until(WELCOME)
 
-    def providers_list(self, kind: str = "", brand: str = "") -> list:
+    def providers_list(self, kind: str = "", brand: str = "") -> list[Provider]:
         """List providers. ``kind`` filters by id prefix (e.g. ``browser``)."""
         with self._lock:
-            payload = _frame._put_str(brand) if brand else b""
-            self._sock.sendall(_Frame(_PROVIDERS_LIST, self.node_id, "", payload).encode())
-            f = self._read_until(_PROVIDERS)
-            provs = _frame.parse_providers(f.payload)
+            payload = frame._put_str(brand) if brand else b""
+            self._sock.sendall(Frame(PROVIDERS_LIST, self.node_id, "", payload).encode())
+            f = self._read_until(PROVIDERS)
+            provs = frame.parse_providers(f.payload)
             return [p for p in provs if not kind or p.id.startswith(kind + ":")]
 
     def route(self, to: str, payload: bytes, timeout: float = 30.0) -> bytes:
         """Route an opaque payload to ``to`` and return its RESPONSE payload."""
         with self._lock:
             self._sock.settimeout(timeout)
-            self._sock.sendall(_Frame(_ROUTE, self.node_id, to, payload).encode())
-            return self._read_until(_RESPONSE, frm=to).payload
+            self._sock.sendall(Frame(ROUTE, self.node_id, to, payload).encode())
+            return self._read_until(RESPONSE, frm=to).payload
 
     def close(self) -> None:
-        try:
+        with contextlib.suppress(OSError):
             self._sock.close()
-        except OSError:
-            pass
 
-    def _read_until(self, typ: int, frm: str | None = None) -> "_Frame":
+    def _read_until(self, typ: int, frm: str | None = None) -> Frame:
         for _ in range(100):
-            f = _Frame.read(self._sock)
+            f = Frame.read(self._sock)
             if f.typ == typ and (frm is None or f.frm == frm):
                 return f
-            if f.typ == _ERROR:
+            if f.typ == ERROR:
                 raise RuntimeError(f.payload.decode(errors="replace"))
         raise TimeoutError(f"zap: no frame type {typ}")

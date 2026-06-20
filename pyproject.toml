@@ -1,12 +1,12 @@
 [project]
 name = "zap-proto"
-version = "1.1.0"
+version = "1.2.0"
 description = "ZAP - Zero-Copy App Proto for Python"
 readme = "README.md"
 license = { text = "MIT" }
-authors = [{ name = "ZAP Protocol", email = "dev@zap.dev" }]
+authors = [{ name = "ZAP Protocol", email = "dev@zap-proto.dev" }]
 requires-python = ">=3.10"
-keywords = ["capnproto", "rpc", "agents", "mcp", "ai", "zap"]
+keywords = ["zap", "rpc", "agents", "mcp", "ai"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -20,30 +20,36 @@ classifiers = [
 ]
 
 dependencies = [
-    # Core is pure-stdlib: `zap.protocol` (binary wire format) needs no extras.
-    # Capnproto RPC / consensus / crypto / app live under [capnp] — opt in
-    # with `pip install zap-protocol[capnp]` (requires the `capnp` C library
-    # available via `brew install capnp` or your distro's package manager).
+    # The core — the zero-copy wire codec (`zap.wire`), the router envelope
+    # (`zap.frame` + ZapClient), the JSON framing (`zap.protocol`), the RPC
+    # client/server (`zap.rpc`), identity, and consensus — is PURE STDLIB.
+    # No third-party dependency is on the import path of `import zap`.
 ]
 
 [project.optional-dependencies]
-capnp = [
-    "pycapnp>=2.0.0",
-    "pydantic>=2.0",
-    "httpx>=0.25",
-    "anyio>=4.0",
+# Real post-quantum crypto: ML-KEM-768 / ML-DSA-65 (pqcrypto) + X25519.
+crypto = [
+    "pqcrypto>=0.4,<1",
+    "cryptography>=42,<50",
+]
+# The FastMCP-style decorator app builds JSON Schemas from function signatures.
+app = [
+    "pydantic>=2.0,<3",
 ]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
     "mypy>=1.10",
+    "pqcrypto>=0.4,<1",
+    "cryptography>=42,<50",
+    "pydantic>=2.0,<3",
 ]
 
 [project.urls]
-Homepage = "https://zap.dev"
-Repository = "https://github.com/zap-protocol/zap-py"
-Documentation = "https://zap.dev/docs/python"
+Homepage = "https://zap-proto.io"
+Repository = "https://github.com/zap-proto/py"
+Documentation = "https://zap-proto.dev/docs/sdks/python"
 
 [build-system]
 requires = ["hatchling"]
@@ -54,7 +60,7 @@ packages = ["src/zap"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -64,5 +70,6 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
+files = ["src/zap"]

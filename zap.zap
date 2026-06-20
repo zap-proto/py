@@ -1,10 +1,10 @@
 @0xb2a3f4c5d6e7f8a9;
 # ZAP - Zero-Copy App Proto
-# Cap'n Proto schema for high-performance agent communication
+# ZAP schema for high-performance agent communication
 
-using Go = import "/go.capnp";
+using Go = import "/go.zap";
 $Go.package("zap");
-$Go.import("github.com/zap-protocol/zap-go");
+$Go.import("github.com/zap-proto/go");
 
 # Core types
 

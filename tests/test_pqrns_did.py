@@ -6,7 +6,6 @@ import hashlib
 import json
 import pathlib
 
-
 KAT_PATH = pathlib.Path(__file__).parent / "pqrns_kat.json"
 
 

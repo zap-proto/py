@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Create venv
+        run: uv venv --python ${{ matrix.python-version }} .venv
+
+      - name: Install package + dev extras
+        run: uv pip install --python .venv/bin/python -e ".[dev,app,crypto]"
+
+      - name: Lint (ruff)
+        run: .venv/bin/ruff check src/ tests/
+
+      - name: Format check (ruff)
+        run: .venv/bin/ruff format --check src/ tests/
+
+      - name: Type check (mypy --strict)
+        run: .venv/bin/mypy src/zap/
+
+      - name: Test (pytest)
+        run: .venv/bin/python -m pytest -q

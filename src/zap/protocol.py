@@ -10,7 +10,7 @@ Wire layout::
     [ 0x5A 0x41 0x50 0x01 ][ type:1 ][ length:4 BE ][ JSON payload ]
 
 This module has no third-party deps so it works on a minimal install — the
-capnproto-based parts of the ``zap`` package may be imported lazily.
+zap-based parts of the ``zap`` package may be imported lazily.
 """
 
 from __future__ import annotations
@@ -51,6 +51,7 @@ __all__ = [
     "ZAP_PORTS",
     "encode",
     "decode",
+    "decode_stream",
 ]
 
 
@@ -66,19 +67,39 @@ def encode(msg_type: int, payload: Any) -> bytes:
 
 
 def decode(frame: bytes) -> tuple[int, Any] | None:
-    """Decode a full ZAP frame. Returns ``(msg_type, payload)`` or ``None``.
+    """Decode a single ZAP frame. Returns ``(msg_type, payload)`` or ``None``.
 
     Returns ``None`` for malformed frames (bad magic, short buffer, oversize,
-    or invalid JSON). Callers wanting strict errors should check ``None``.
+    or invalid JSON). Trailing bytes after the first frame are ignored — to
+    demux a byte stream of back-to-back frames use :func:`decode_stream`.
     """
-    if len(frame) < HEADER_SIZE or frame[:4] != ZAP_MAGIC:
+    result = decode_stream(frame)
+    if result is None:
         return None
-    msg_type = frame[4]
-    (length,) = struct.unpack("!L", frame[5:9])
-    if length > MAX_MESSAGE_SIZE or len(frame) < HEADER_SIZE + length:
+    msg_type, payload, _consumed = result
+    return msg_type, payload
+
+
+def decode_stream(buf: bytes) -> tuple[int, Any, int] | None:
+    """Decode the first ZAP frame in ``buf``; report bytes consumed.
+
+    Returns ``(msg_type, payload, consumed)`` where ``consumed`` is the total
+    frame length (header + payload) — advance the read cursor by it, then call
+    again for the next frame. Returns ``None`` when ``buf`` does not yet hold a
+    complete, well-formed frame (need more bytes, bad magic, oversize, or
+    invalid JSON), so a stream consumer can wait for more data.
+    """
+    if len(buf) < HEADER_SIZE or buf[:4] != ZAP_MAGIC:
+        return None
+    msg_type = buf[4]
+    (length,) = struct.unpack("!L", buf[5:9])
+    if length > MAX_MESSAGE_SIZE:
+        return None
+    end = HEADER_SIZE + length
+    if len(buf) < end:
         return None
     try:
-        payload = json.loads(frame[HEADER_SIZE : HEADER_SIZE + length].decode("utf-8"))
+        payload = json.loads(buf[HEADER_SIZE:end].decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
-    return msg_type, payload
+    return msg_type, payload, end

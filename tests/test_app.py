@@ -1,6 +1,7 @@
 """Tests for ZAP application."""
 
 import pytest
+
 from zap import ZAP, PromptMessage
 
 
