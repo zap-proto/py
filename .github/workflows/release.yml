@@ -11,12 +11,18 @@ on:
 #      trusted publisher (owner zap-proto, repo py, workflow release.yml, env pypi).
 #   2. Token fallback — set a repo/org secret `PYPI_TOKEN` (a PyPI API token).
 #      Used automatically only when no OIDC trusted publisher is configured.
+#
+# NOTE: the `secrets` context is NOT available in step-level `if:` conditionals,
+# so the secret is mapped to a job-level `env` (where `secrets` IS available) and
+# the steps branch on `env.HAS_TOKEN`.
 jobs:
   publish:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write   # OIDC trusted publishing
+    env:
+      HAS_TOKEN: ${{ secrets.PYPI_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,11 +32,11 @@ jobs:
       - run: python -m build
       # OIDC path (no `password:` -> the action mints an OIDC token).
       - name: Publish via trusted publishing (OIDC)
-        if: ${{ !secrets.PYPI_TOKEN }}
+        if: ${{ env.HAS_TOKEN == 'false' }}
         uses: pypa/gh-action-pypi-publish@release/v1
       # Token path — only when PYPI_TOKEN is set (KMS-issued PyPI API token).
       - name: Publish via API token
-        if: ${{ secrets.PYPI_TOKEN }}
+        if: ${{ env.HAS_TOKEN == 'true' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_TOKEN }}
