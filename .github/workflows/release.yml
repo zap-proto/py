@@ -5,15 +5,18 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
-# PyPI trusted publishing (OIDC) — no stored token, KMS/secret-free.
-# Requires a one-time trusted-publisher entry on pypi.org for
-# project "zap-proto", repo zap-proto/py, workflow release.yml, env pypi.
+# Publish zap-proto to PyPI on tag push. Two supported paths, in priority order:
+#   1. PyPI trusted publishing (OIDC) — no stored token. Preferred (KMS/secret-free).
+#      One-time setup: pypi.org -> zap-proto -> Manage -> Publishing -> add a
+#      trusted publisher (owner zap-proto, repo py, workflow release.yml, env pypi).
+#   2. Token fallback — set a repo/org secret `PYPI_TOKEN` (a PyPI API token).
+#      Used automatically only when no OIDC trusted publisher is configured.
 jobs:
   publish:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write
+      id-token: write   # OIDC trusted publishing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,4 +24,13 @@ jobs:
           python-version: '3.12'
       - run: pip install build
       - run: python -m build
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      # OIDC path (no `password:` -> the action mints an OIDC token).
+      - name: Publish via trusted publishing (OIDC)
+        if: ${{ !secrets.PYPI_TOKEN }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+      # Token path — only when PYPI_TOKEN is set (KMS-issued PyPI API token).
+      - name: Publish via API token
+        if: ${{ secrets.PYPI_TOKEN }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
