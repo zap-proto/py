@@ -15,7 +15,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       links={[
         {
           text: 'GitHub',
-          url: 'https://github.com/zap-protocol/zap-py',
+          url: 'https://github.com/zap-proto/py',
         },
       ]}
     >

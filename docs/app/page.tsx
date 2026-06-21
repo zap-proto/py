@@ -16,7 +16,7 @@ export default function HomePage() {
           Get Started
         </Link>
         <Link
-          href="https://github.com/zap-protocol/zap-py"
+          href="https://github.com/zap-proto/py"
           className="rounded-lg border border-fd-border px-6 py-3 font-medium hover:bg-fd-accent transition-colors"
         >
           GitHub
