@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     default: 'ZAP Python Documentation',
   },
   description: 'Python bindings for ZAP - Zero-Copy App Proto for AI agent communication',
-  metadataBase: new URL('https://zap-protocol.github.io/zap-py'),
+  metadataBase: new URL('https://zap-proto.github.io/py'),
 };
 
 export const viewport: Viewport = {
