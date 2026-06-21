@@ -41,6 +41,19 @@ from zap.client import ZapClient
 from zap.consensus import AgentConsensus, Query, Response, Vote
 from zap.frame import Frame
 from zap.identity import DID, DIDMethod
+from zap.pipeline import (
+    NO_TARGET,
+    STATUS_BAD_REQUEST,
+    STATUS_OK,
+    Call,
+    Pipeliner,
+    Promise,
+    Session,
+    build_request,
+    build_response,
+    parse_request,
+    parse_response,
+)
 from zap.types import (
     Capabilities,
     ClientInfo,
@@ -74,7 +87,7 @@ if TYPE_CHECKING:  # for type checkers / IDEs only — not imported at runtime
     from zap.app import ZAP
     from zap.client import Client
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 # Names served lazily by __getattr__ -> (module, attribute). Importing these
 # pulls the [app] extra (pydantic/httpx); a missing extra raises ImportError.
@@ -117,6 +130,18 @@ __all__ = [
     "DEFAULT_PORT",
     # Capability runtime (signed, attenuable authority tokens)
     "cap",
+    # Promise pipelining (the canonical ZAP model — peer of Go/TS Session+Pipeliner)
+    "Session",
+    "Pipeliner",
+    "Promise",
+    "Call",
+    "build_request",
+    "build_response",
+    "parse_request",
+    "parse_response",
+    "NO_TARGET",
+    "STATUS_OK",
+    "STATUS_BAD_REQUEST",
     # Router / framing
     "frame",
     "protocol",

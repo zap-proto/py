@@ -14,6 +14,27 @@ import `zap`. The core is pure stdlib — `import zap` pulls no third-party dep.
 - `rpc` — real TCP request/response transport. `Server` dispatches the `Zap`
   interface method ordinals (`Method` enum, @0..@8 from `zap.zap`); `Client`
   calls them. JSON body, magic-framed envelope (reuses `protocol`).
+- `pipeline` — promise pipelining (the ONE canonical ZAP model), the faithful
+  Python peer of Go's `zap-proto/go/rpc` (`Session` + `Pipeliner`) and TS
+  `@zap-proto/zap` `promise.ts`. `Session` (client: monotonic `promise_id`
+  allocator starting at 1 + `origin`/`pipeline` `Call` builders that set
+  `target` to `NO_TARGET` vs a prior promise's id) + `Pipeliner` (server:
+  per-connection promise table that records each OK answer's Body under its
+  `promise_id`, substitutes a resolved target's Body for a dependent's Payload
+  before dispatch, QUEUES a dependent whose target is unresolved until it
+  resolves, REFUSES — `STATUS_BAD_REQUEST` — a dependent whose target answered
+  non-OK or was finished; never hangs). `finish(id)` bounds the table with a
+  terminal "finished" state that refuses + wakes parked dependents. Operates on
+  the **binary** `Call`/`Response` envelope built with `zap.wire`
+  (`build_request`/`build_response`/`parse_request`/`parse_response`, `target`
+  @8) — **byte-for-byte identical to Go `rpc.BuildRequest`/`BuildResponse` and
+  TS `buildRequest`/`buildResponse`** (pinned by `tests/test_pipeline.py`, which
+  asserts equality with golden Go hexes and which were verified to round-trip
+  through the real Go `ParseRequest`/`ParseResponse`). NOTE: this is the SAME
+  wire as Go/TS pipelining and is DISTINCT from `rpc.py`'s JSON
+  `{id,method,params}` transport envelope — pipelining shares the byte-level
+  wire with the other runtimes; the `rpc.Server`/`Client` JSON transport does
+  not. Pure stdlib.
 - `frame` — the `zapd` router-envelope codec, byte-compatible with
   `zap-proto/zapd/src/frame.rs` + `ZapClient` (connect / hello / providers.list
   / route). Used by `hanzo-tools-browser`'s `zapd_consumer`.
