@@ -1,6 +1,6 @@
 [project]
 name = "zap-proto"
-version = "1.4.0"
+version = "1.4.1"
 description = "ZAP - Zero-Copy App Proto for Python"
 readme = "README.md"
 license = { text = "MIT" }
