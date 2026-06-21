@@ -87,7 +87,7 @@ if TYPE_CHECKING:  # for type checkers / IDEs only — not imported at runtime
     from zap.app import ZAP
     from zap.client import Client
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 # Names served lazily by __getattr__ -> (module, attribute). Importing these
 # pulls the [app] extra (pydantic/httpx); a missing extra raises ImportError.
