@@ -42,6 +42,7 @@ from ._errors import (
     TargetMismatchError,
     TooShortError,
     UnhandledSchemeError,
+    UnknownCaveatError,
 )
 from ._issue import Issuance, attenuate, issue
 from ._kinds import (
@@ -114,6 +115,7 @@ __all__ = [
     "TooShortError",
     "BadMagicError",
     "BadCaveatsError",
+    "UnknownCaveatError",
     "SigMismatchError",
     "ExpiredError",
     "RevokedError",
