@@ -132,6 +132,69 @@ alice_secret = alice.finalize(b_x_pub, ciphertext)
 assert alice_secret == bob_secret  # both sides agree
 ```
 
+## Capabilities
+
+`zap.cap` is the capability runtime — signed, attenuable tokens of authority,
+a faithful port of [`zap-proto/go/cap`](https://github.com/zap-proto/go/tree/main/cap).
+A `Cap` grants a `holder` a `permissions` bitmask over a `target`, issued by an
+`issuer`; caps form a chain and `Verifier.verify_chain` walks back to a root.
+
+```python
+from zap import cap
+
+signer = cap.Ed25519Signer.generate()
+root = cap.issue(
+    cap.Issuance(
+        kind=int(cap.CapKind.IAM_SESSION),
+        permissions=cap.PERM_ATTENUATE,  # may exercise *and* delegate
+        expires_at=2_000_000_000,
+    ),
+    signer,
+)
+# Narrower child: permissions intersect, expiry only shrinks, parent must carry
+# PERM_ATTENUATE (or be a CapKind.DELEGATE cap).
+child = cap.attenuate(root, child_holder, cap.PERM_AUDIT, None, 0, signer)
+```
+
+`issue` / `attenuate` enforce the SPEC §2.3 delegation gate at mint time;
+`Verifier.verify` / `verify_chain` enforce the full invariants with **fail-closed**
+scheme dispatch (reserved tag `0x00` and unknown tags refused, never downgraded).
+`cap.id` is `SHA-256(canonical_bytes ‖ Sig)` and `canonical_bytes` is the SPEC §3
+signed scope — both byte-identical to the Go, Rust, and TypeScript runtimes
+(pinned by a cross-language known-answer test). Schemes: Ed25519 (mandatory
+bootstrap), ML-DSA-65 (FIPS 204), secp256k1 ECDSA — all real; a missing crypto
+backend raises `SchemeUnavailable` (fail-closed). Wire / canonical / CapID are
+pure stdlib; signing needs the `[crypto]` extra. The capability layer ships in
+all four reference runtimes (Go, Python, Rust, TypeScript).
+
+## Promise pipelining
+
+`zap.pipeline` is the canonical Target-based pipelining model — the byte-for-byte
+Python peer of Go's `rpc.Session` / `rpc.Pipeliner` and TypeScript's `Session` /
+`Pipeliner`. A call carries a `promise_id`; a dependent call sets `target` to a
+prior call's `promise_id`, and the server substitutes that prior call's resolved
+body as the dependent's payload before dispatch — so the dependent ships without
+waiting for the first answer to round-trip.
+
+```python
+from zap import Session, Pipeliner, build_request
+
+sess = Session()
+srv = Pipeliner(dispatch)              # dispatch(envelope) -> response envelope
+
+p = sess.next()                        # A: authenticate (target = NO_TARGET)
+a = srv.handle(build_request(sess.origin(p, AUTH_ORDINAL, cap_token, auth_req)))
+q = sess.next()                        # B: pipeline on A's answer
+b = srv.handle(build_request(sess.pipeline(q, p, GET_ORDINAL, cap_token, b"")))
+```
+
+The `Pipeliner` queues a dependent whose target has not resolved yet, refuses
+(`STATUS_BAD_REQUEST`) one whose target answered non-OK or was `finish`ed, and
+never hangs. The `build_request` / `build_response` envelope is byte-identical to
+Go's `rpc.BuildRequest` / `BuildResponse` and TypeScript's `buildRequest` /
+`buildResponse`, so a pipelined exchange round-trips between all three. (Rust's
+`zap-rpc` implements the richer capnp `PromisedAnswer` superset.)
+
 ## Agent consensus
 
 ```python
