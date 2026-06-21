@@ -114,6 +114,26 @@ def test_verify_accepts_fresh() -> None:
     v.verify(c, 1700000000)  # no raise
 
 
+def test_verify_refuses_unknown_caveat_kind() -> None:
+    # SPEC §2.3: verifiers MUST fail-closed on an unknown CaveatKind. Was a
+    # cross-language divergence (Go/Python accepted, Rust rejected); now consistent.
+    signer = _signer()
+    c = cap.issue(
+        cap.Issuance(
+            kind=int(cap.CapKind.KMS_ACCESS),
+            permissions=0xFF,
+            expires_at=2000000000,
+            caveats=[cap.Caveat(kind=0x42424242, value=b"must-not-be-ignored")],
+        ),
+        signer,
+    )
+    v = cap.Verifier(issuer_key=_issuer_key(signer))
+    with pytest.raises(cap.UnknownCaveatError):
+        v.verify(c, 1700000000)
+    with pytest.raises(cap.UnknownCaveatError):
+        v.verify_chain(c, [], 0x01, c.target, c.holder, 1700000000)
+
+
 def test_verify_rejects_expired() -> None:
     signer = _signer()
     c = cap.issue(

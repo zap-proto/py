@@ -22,8 +22,9 @@ from ._errors import (
     PermsExceedParentError,
     RevokedError,
     TargetMismatchError,
+    UnknownCaveatError,
 )
-from ._kinds import PERM_ATTENUATE, CapKind, Scheme
+from ._kinds import PERM_ATTENUATE, CapKind, CaveatKind, Scheme
 from ._sign import verify_sig
 
 _ZERO32 = b"\x00" * 32
@@ -63,10 +64,16 @@ class Verifier:
         bytes. Does NOT walk the parent chain — use :meth:`verify_chain`.
         Raises on any failure; returns ``None`` if acceptable.
         """
-        # Walk the caveat list once to catch bad framing.
+        # Walk the caveat list: catch bad framing AND refuse unknown kinds.
+        # SPEC §2.3: verifiers MUST fail-closed on an unrecognized CaveatKind —
+        # a caveat is a restriction; accepting it would silently ignore a
+        # constraint the issuer intended (a privilege-escalation fail-open).
         for i in range(cap.num_caveats()):
-            if cap.caveat_at(i) is None:
+            cav = cap.caveat_at(i)
+            if cav is None:
                 raise BadCaveatsError("cap: caveat block malformed")
+            if cav.kind > CaveatKind.NONCE_HASH:
+                raise UnknownCaveatError(f"cap: unknown caveat kind {cav.kind:#x}")
 
         # Expiry. 0 means never.
         exp = cap.expires_at

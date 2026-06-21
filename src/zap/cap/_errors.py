@@ -24,6 +24,11 @@ class BadCaveatsError(CapError):
     """The caveat block is malformed (an element failed to parse)."""
 
 
+class UnknownCaveatError(CapError):
+    """A caveat carries an unrecognized kind. Per SPEC §2.3 verifiers MUST
+    refuse (fail-closed) — a caveat is a restriction that cannot be ignored."""
+
+
 class SigMismatchError(CapError):
     """The signature does not verify against the issuer's public key."""
 
