@@ -42,7 +42,7 @@ import `zap`. The core is pure stdlib — `import zap` pulls no third-party dep.
   by `tests/testdata/cap_go_kat.{hex,json}` — a Go-signed cap that decodes,
   recomputes the same canonical bytes + CapID, and verifies in Python (and a
   deterministic Python re-issue is byte-identical to Go).
-- `identity` — W3C DID (`did:lux`/`did:key`/`did:web`). `consensus` — voting.
+- `identity` — W3C DID (`did:zap`/`did:key`/`did:web`). `consensus` — voting.
 
 Gates (CI in `.github/workflows/ci.yml`): `ruff check`, `ruff format --check`,
 `mypy --strict src/zap/`, `pytest` — all green. Use `uv` for the venv.
