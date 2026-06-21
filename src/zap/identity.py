@@ -18,7 +18,7 @@ else:  # Python 3.10: StrEnum landed in 3.11. Faithful backport (str mixin + val
 class DIDMethod(StrEnum):
     """Supported DID methods."""
 
-    LUX = "lux"
+    ZAP = "zap"
     KEY = "key"
     WEB = "web"
 
@@ -29,7 +29,7 @@ class DID:
     W3C Decentralized Identifier.
 
     Supports:
-    - did:lux - Lux blockchain-anchored DIDs
+    - did:zap - ZAP-native, blockchain-anchored DIDs
     - did:key - Self-certifying DIDs from cryptographic keys
     - did:web - DNS-based DIDs
     """
