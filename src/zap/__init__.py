@@ -30,7 +30,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 # ── Core: zero-copy wire codec (pure stdlib, always importable) ─────────────
-from zap import frame, protocol, wire
+# `cap` (the capability runtime) is importable here with no third-party dep —
+# its crypto backends are guarded and fail loudly only when a sign/verify call
+# actually needs them (the wire/canonical/CapID paths are pure stdlib).
+from zap import cap, frame, protocol, wire
 
 # ZapClient (router UDS client) is pure-stdlib; the HTTP Client is not, so it
 # is resolved lazily below.
@@ -71,7 +74,7 @@ if TYPE_CHECKING:  # for type checkers / IDEs only — not imported at runtime
     from zap.app import ZAP
     from zap.client import Client
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # Names served lazily by __getattr__ -> (module, attribute). Importing these
 # pulls the [app] extra (pydantic/httpx); a missing extra raises ImportError.
@@ -112,6 +115,8 @@ __all__ = [
     "VERSION2",
     "HEADER_SIZE",
     "DEFAULT_PORT",
+    # Capability runtime (signed, attenuable authority tokens)
+    "cap",
     # Router / framing
     "frame",
     "protocol",
