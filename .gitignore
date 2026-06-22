@@ -10,3 +10,7 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# stray build probe objects + uv lockfile (library — deps resolved per-install)
+*.o
+uv.lock
