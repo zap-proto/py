@@ -54,6 +54,47 @@ the reader rejects out-of-bounds and backward pointers that would alias the wire
 header, and clamps list lengths — so an adversarial buffer that Go rejects is
 rejected here too.
 
+## Schemas
+
+A `.zap` schema is whitespace-significant — indentation, no braces — and this
+library reads it natively and generates the bindings:
+
+```zap
+package addressbook
+
+struct Person
+  id u64
+  name text
+  email text
+  tags list<Tag>
+
+interface Directory
+  find(req: Person) returns (resp: Person)
+```
+
+```console
+$ python -m zap.schema addressbook.zap     # writes addressbook_zap.py
+```
+
+```python
+from addressbook_zap import Person
+
+buf = Person.build(id=7, name="Ada", email="ada@example.com")
+p = Person.wrap(buf)  # a zero-copy view — nothing is decoded
+assert p.name == "Ada"  # read IN PLACE at the schema's offset
+```
+
+Reading a schema is two steps, the same two as the Go generator: the
+whitespace form is rewritten into the canonical brace form — a near-identity
+that only adds the `{`/`}` and `@offset` tokens the brace grammar needs, so a
+brace file round-trips byte-for-byte — and then one parser handles both. Field
+offsets are assigned from each type's slot width, exactly as in Go, so the two
+runtimes lay a schema out identically: bytes built by the bindings generated
+here equal bytes built by the bindings Go generates from the same file.
+
+An `interface` also emits an ordinal enum, a handler `Protocol`, a `dispatch`
+function, and a typed client that speaks the pipelined envelope below.
+
 ## RPC
 
 A real request/response transport over TCP, dispatching the `Zap` interface

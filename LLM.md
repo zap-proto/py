@@ -64,6 +64,26 @@ import `zap`. The core is pure stdlib — `import zap` pulls no third-party dep.
   recomputes the same canonical bytes + CapID, and verifies in Python (and a
   deterministic Python re-issue is byte-identical to Go).
 - `identity` — W3C DID (`did:zap`/`did:key`/`did:web`). `consensus` — voting.
+- `schema` — native `.zap` schema support: read a schema, generate Python
+  bindings. `python -m zap.schema SCHEMA.zap` writes one `<schema>_zap.py`.
+  The schema is whitespace-significant (indentation, no braces), and reading
+  it is the SAME two steps as `zap-proto/go`'s `cmd/zapgen`: `desugar`
+  rewrites the whitespace form into the canonical brace form — a near-identity
+  that only ADDS the `{`/`}` and `@offset` tokens the brace grammar requires,
+  so a pure-brace file round-trips byte-for-byte — then the brace parser runs
+  unchanged. Two styles, one grammar, and both runtimes read a schema the same
+  way. Emitted bindings are zero-copy views over `zap.wire` (`wrap` parses,
+  properties read fields IN PLACE at their schema offsets, `build` writes)
+  plus, per interface, an ordinal `IntEnum`, a handler `Protocol`, a
+  `dispatch_*`, and a typed client over `zap.pipeline` (`Channel` /
+  `CallFailed` live there, so a generated module declares only the schema's
+  own names). Pinned against Go two ways in `tests/test_schema.py`: the
+  desugar golden corpus is `cmd/zapgen/desugar_test.go` verbatim, and
+  `Ping.build` / `BaseTx.build` must reproduce the bytes the GO generator's
+  own output writes. Measured on the 263 unique `.zap` files in the estate:
+  the two generators AGREE on accept-or-reject for all 263 (135 accept, 128
+  reject, same message), and every accepted schema's generated module
+  imports, is `ruff`-clean and passes `mypy --strict`. Pure stdlib.
 
 Gates (CI in `.github/workflows/ci.yml`): `ruff check`, `ruff format --check`,
 `mypy --strict src/zap/`, `pytest` — all green. Use `uv` for the venv.

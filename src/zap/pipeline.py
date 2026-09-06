@@ -43,6 +43,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from zap.wire import VERSION2, Builder, parse
 
@@ -176,6 +177,25 @@ def parse_response(msg: bytes) -> Response:
 
 
 # ── Client-side origination ──────────────────────────────────────────────────
+
+
+class Channel(Protocol):
+    """Ships one :class:`Call` envelope and awaits its correlated answer.
+
+    The seam a typed client is built over: a transport (a TCP connection, an
+    in-process loop, the router) supplies it. Generated service clients take
+    one of these and nothing else.
+    """
+
+    def call(self, envelope: bytes) -> Response: ...
+
+
+class CallFailed(RuntimeError):
+    """A call was answered with a non-OK status; :attr:`status` carries it."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"call failed: status {status}")
+        self.status = status
 
 
 @dataclass(frozen=True)
