@@ -83,7 +83,11 @@ import `zap`. The core is pure stdlib — `import zap` pulls no third-party dep.
   own output writes. Measured on the 263 unique `.zap` files in the estate:
   the two generators AGREE on accept-or-reject for all 263 (135 accept, 128
   reject, same message), and every accepted schema's generated module
-  imports, is `ruff`-clean and passes `mypy --strict`. Pure stdlib.
+  imports, is `ruff`-clean and passes `mypy --strict`. A name Python or the
+  view already claims (`from`, `None`, `wrap`, `build`) takes the trailing
+  underscore PEP 8 prescribes; two fields answering to one name is refused,
+  the one place this reader is stricter than Go, which accepts that schema
+  and writes Go that does not compile. Pure stdlib.
 
 Gates (CI in `.github/workflows/ci.yml`): `ruff check`, `ruff format --check`,
 `mypy --strict src/zap/`, `pytest` — all green. Use `uv` for the venv.
