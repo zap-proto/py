@@ -395,9 +395,43 @@ def test_client_ships_ordinals_and_pipelines() -> None:
     assert seen[1].method == 3 and seen[1].target == p.id and seen[1].payload == b""
 
 
-def test_keyword_field_takes_the_pep8_underscore() -> None:
-    """A schema field named ``from`` is reachable as ``from_``."""
-    _, body = emit(parse("t.zap", "package p\nstruct S\n    from u32\n    to u32\n"))
-    assert "def from_(self) -> int:" in body
-    assert "_fromOff = 0" in body
+@pytest.mark.parametrize(
+    ("field", "seat"), [("from", "from_"), ("wrap", "wrap_"), ("build", "build_")]
+)
+def test_a_claimed_name_takes_the_pep8_underscore(field: str, seat: str) -> None:
+    """A field Python or the view already claims is reachable with a ``_``."""
+    _, body = emit(parse("t.zap", f"package p\nstruct S\n    {field} u32\n    to u32\n"))
+    assert f"def {seat}(self) -> int:" in body
+    assert f"_{field}Off = 0" in body
     compile(body, "t_zap.py", "exec")
+
+
+def test_the_estate_schema_with_a_python_keyword_field_generates() -> None:
+    """``None`` is a real field name in the fleet; it reads back as ``None_``."""
+    src = "package p\nstruct Coverage\n    None i64\n    Statement text\n"
+    _, body = emit(parse("t.zap", src))
+    ns: dict[str, object] = {}
+    exec(compile(body, "t_zap.py", "exec"), ns)  # noqa: S102 — the point of the test
+    cls = ns["Coverage"]
+    buf = cls.build(None_=-3, Statement="x")  # type: ignore[attr-defined]
+    view = cls.wrap(buf)  # type: ignore[attr-defined]
+    assert view.None_ == -3
+    assert view.Statement == "x"
+
+
+@pytest.mark.parametrize(
+    ("src", "match"),
+    [
+        # Two fields answering to one name: the reference accepts this and
+        # emits Go that will not compile. Rejecting it names the defect.
+        ("package p\nstruct S {\n A u8 @0\n A u8 @4\n}\n", "both A"),
+        ("package p\nstruct S {\n from u8 @0\n from_ u8 @4\n}\n", "both from_"),
+        (
+            "package p\nstruct S {\n A u8 @0\n}\ninterface I {\n from(r: S)\n from_(r: S)\n}\n",
+            "both from_",
+        ),
+    ],
+)
+def test_one_name_one_field(src: str, match: str) -> None:
+    with pytest.raises(SchemaError, match=match):
+        emit(parse("t.zap", src))
