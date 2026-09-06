@@ -21,8 +21,9 @@ import keyword
 
 from ._ast import File, Interface, Kind, Method, SchemaError, Struct, Type
 
-#: Class members the generated view already owns; a field may not take them.
-_TAKEN = frozenset({"wrap", "build"})
+#: Names the generated view already owns. A field spelled like one of these
+#: takes the same trailing underscore a Python keyword does.
+_CLAIMED = frozenset({"wrap", "build"})
 
 #: Reader accessor and Python result type, per primitive kind.
 _READ: dict[Kind, tuple[str, str]] = {
@@ -83,11 +84,12 @@ def py_name(name: str) -> str:
     """The Python spelling of a schema identifier.
 
     Schema names are carried through verbatim — a generated binding that
-    renames its own schema is a second source of truth. The one exception
-    is a name Python reserves (``from``, ``class``, …), which takes the
-    trailing underscore PEP 8 prescribes, leaving the schema name readable.
+    renames its own schema is a second source of truth. The one exception is
+    a name already spoken for, either by Python (``from``, ``class``, …) or
+    by the view itself (``wrap``, ``build``): that one takes the trailing
+    underscore PEP 8 prescribes, which leaves the schema name readable.
     """
-    return name + "_" if keyword.iskeyword(name) else name
+    return name + "_" if keyword.iskeyword(name) or name in _CLAIMED else name
 
 
 def snake(name: str) -> str:
@@ -101,21 +103,30 @@ def snake(name: str) -> str:
 
 
 def validate(s: Struct) -> None:
-    """Reject an unsound layout: no fields, bad type, or overlapping fields."""
+    """Reject an unsound layout: no fields, bad type, overlap, or a name twice.
+
+    Two fields that answer to the same name is the one place this reader is
+    stricter than ``zap-proto/go``, which accepts the schema and emits a Go
+    file that does not compile. Silently keeping one of the two would hide a
+    schema defect behind generated code.
+    """
     size = s.size
     if size == 0:
         raise SchemaError(f"struct {s.name}: no fields")
     owner: list[str] = [""] * size
+    taken: dict[str, str] = {}
     for f in s.fields:
+        seat = py_name(f.name)
+        if seat in taken:
+            raise SchemaError(
+                f"struct {s.name}: field {f.name} and field {taken[seat]} are both {seat}"
+            )
+        taken[seat] = f.name
         width = f.type.slot
         if width == 0:
             raise SchemaError(f"struct {s.name} field {f.name}: unsupported type {f.type.kind}")
         if f.offset < 0:
             raise SchemaError(f"struct {s.name} field {f.name}: negative offset {f.offset}")
-        if not f.name.startswith("_") and py_name(f.name) in _TAKEN:
-            raise SchemaError(
-                f"struct {s.name} field {f.name}: name is taken by the generated view"
-            )
         for i in range(f.offset, f.offset + width):
             if owner[i]:
                 raise SchemaError(
@@ -129,11 +140,14 @@ def validate_interface(f: File, iface: Interface) -> None:
     if not iface.methods:
         raise SchemaError(f"interface {iface.name}: no methods")
     known = {s.name for s in f.structs}
-    seen: set[str] = set()
+    seen: dict[str, str] = {}
     for m in iface.methods:
-        if m.name in seen:
-            raise SchemaError(f"interface {iface.name}: duplicate method {m.name}")
-        seen.add(m.name)
+        seat = py_name(m.name)
+        if seat in seen:
+            raise SchemaError(
+                f"interface {iface.name}: method {m.name} and method {seen[seat]} are both {seat}"
+            )
+        seen[seat] = m.name
         for p in (m.request, m.response):
             if p is None:
                 continue
