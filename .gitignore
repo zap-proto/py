@@ -14,3 +14,9 @@ htmlcov/
 # stray build probe objects + uv lockfile (library — deps resolved per-install)
 *.o
 uv.lock
+
+# docs/ is the one TypeScript project in this repo
+docs/node_modules/
+docs/.next/
+docs/out/
+docs/.source/
