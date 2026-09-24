@@ -20,3 +20,8 @@ docs/node_modules/
 docs/.next/
 docs/out/
 docs/.source/
+
+# Local symlinks to LLM.md
+CLAUDE.md
+AGENTS.md
+GEMINI.md
